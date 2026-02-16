@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh auth:*)",
+      "Bash(where:*)",
+      "Bash(winget:*)",
+      "Bash(\"/c/Program Files/winget/winget.exe\" --version)",
+      "Bash(cmd.exe //c \"winget --version\")",
+      "Bash(powershell.exe -Command \"winget --version\")",
+      "Bash(powershell.exe -Command \"Get-Command winget -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source\")",
+      "Bash(powershell.exe -Command \"scoop --version\")",
+      "Bash(choco:*)",
+      "Bash(powershell.exe -Command \"choco --version\")",
+      "Bash(npm:*)",
+      "Bash(curl:*)",
+      "Bash(unzip:*)",
+      "Bash(/tmp/gh-install/gh_extracted/bin/gh.exe:*)",
+      "Bash(export GH=/tmp/gh-install/gh_extracted/bin/gh.exe)",
+      "Bash($GH auth status)"
+    ]
+  }
+}
