@@ -168,3 +168,56 @@ chore/update-dependencies
 - GPS: don't request high-frequency updates when the app is idle
 - Images: use vector drawables where possible, compress bitmaps
 - Startup: keep `onCreate` fast — defer non-critical initialization
+
+## Branch Protection Rules
+
+### `master` Branch Protection
+Configure in GitHub Settings → Branches → Branch protection rules:
+
+| Rule | Setting |
+|------|---------|
+| Require pull request before merging | **Enabled** |
+| Required approvals | 1 (increase as team grows) |
+| Dismiss stale PR approvals on new push | **Enabled** |
+| Require status checks to pass | **Enabled** |
+| Required status checks | `lint`, `unit-test`, `build` |
+| Require branch to be up to date | **Enabled** |
+| Restrict force pushes | **Enabled** (no force push) |
+| Restrict deletions | **Enabled** (no branch deletion) |
+
+### `release/*` Branch Protection
+| Rule | Setting |
+|------|---------|
+| Require pull request before merging | **Enabled** |
+| Required status checks | `lint`, `unit-test`, `build` |
+| Restrict force pushes | **Enabled** |
+| Allowed merge sources | `hotfix/*` branches only |
+
+## Merge Strategy Enforcement
+
+| Merge Type | Strategy | Rationale |
+|-----------|----------|-----------|
+| Feature → `master` | **Squash merge** | Produces a clean, linear commit history |
+| Bugfix → `master` | **Squash merge** | One commit per fix in history |
+| Hotfix → `release/*` | **Merge commit** | Preserves full fix history for audit |
+| Hotfix → `master` | **Cherry-pick** | Applies fix without pulling in release-specific commits |
+
+Configure in GitHub Settings → General → Pull Requests:
+- **Allow squash merging**: Enabled (default for feature/bugfix PRs)
+- **Allow merge commits**: Enabled (for hotfix → release merges)
+- **Allow rebase merging**: Disabled (prevents rewriting shared history)
+- **Automatically delete head branches**: Enabled (clean up after merge)
+
+## Required CI Status Checks
+
+The following checks must pass before any PR can be merged:
+
+| Check Name | Job | What It Validates |
+|-----------|-----|-------------------|
+| `lint` | `ci.yml` | Android Lint — no warnings or errors |
+| `unit-test` | `ci.yml` | All JUnit 5 unit tests pass |
+| `build` | `ci.yml` | Debug APK builds successfully |
+
+Instrumented tests (`instrumented-test`) run but are not required for merge, as emulator tests can be flaky in CI. They serve as an additional confidence signal.
+
+See [Branching Strategy](./BRANCHING_STRATEGY.md) for the full GitLab Flow workflow and branch naming conventions.
