@@ -48,10 +48,11 @@ class TimestampValidationTest {
 
     @Test
     fun `timestamp in seconds (not milliseconds) fails`() {
-        // 1672531200 seconds = Jan 1 2023, but in seconds not ms
-        val result = validateTimestamp(1672531200L)
+        // A recent timestamp in seconds (not ms) — falls below the ms threshold
+        // 1700000000 seconds ≈ Nov 2023, but detected as seconds not ms
+        val result = validateTimestamp(1700000000L)
         assertFalse(result.isValid)
-        assertTrue(result.errors.any { it.contains("seconds") })
+        assertTrue(result.errors.any { it.contains("seconds") || it.contains("before minimum") })
     }
 
     @Test

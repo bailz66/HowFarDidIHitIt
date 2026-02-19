@@ -23,7 +23,7 @@ class HaversineBoundaryTest {
         "Antipodal points,                  0.0,      0.0,     0.0,      180.0,   20015087.0,  1000.0",
         "Negative latitude,               -33.868,  151.207, -33.856,   151.215,     1500.0,   100.0",
         "Prime Meridian crossing,          51.5,     -0.1,    51.5,        0.1,      13800.0,   200.0",
-        "Atlanta to Augusta (~230km),      33.749,  -84.388,  33.474,   -82.010,    230000.0,  1500.0"
+        "Atlanta to Augusta (~222km),      33.749,  -84.388,  33.474,   -82.010,    222320.0,  1500.0"
     )
     fun `haversine distance matches expected value`(
         description: String,

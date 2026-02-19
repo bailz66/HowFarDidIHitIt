@@ -85,9 +85,9 @@ class GpsCalibrationBoundaryTest {
     @Test
     fun `extreme coordinates near poles`() {
         val samples = listOf(
-            GpsCoordinate(89.999, 0.0),
-            GpsCoordinate(89.998, 0.001),
-            GpsCoordinate(89.999, -0.001)
+            GpsCoordinate(89.9999, 0.0),
+            GpsCoordinate(89.9999, 0.00001),
+            GpsCoordinate(89.9999, -0.00001)
         )
         val result = calibrate(samples)
         assertNotNull(result)
