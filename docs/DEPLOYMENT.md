@@ -275,7 +275,7 @@ Use `r0adkll/upload-google-play` GitHub Action or Fastlane to automate Play Stor
 - uses: r0adkll/upload-google-play@v1
   with:
     serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT }}
-    packageName: com.example.howfardidihitit
+    packageName: com.smacktrack.golf
     releaseFiles: app/build/outputs/bundle/release/app-release.aab
     track: production
 ```

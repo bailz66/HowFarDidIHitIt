@@ -19,7 +19,7 @@ This document defines the coding standards, conventions, and quality gates for t
 ### Naming Conventions
 | Element | Convention | Example |
 |---------|-----------|---------|
-| Package | lowercase, dot-separated | `com.example.howfardidihitit.data` |
+| Package | lowercase, dot-separated | `com.smacktrack.golf.data` |
 | Class | PascalCase | `ShotTrackerViewModel` |
 | Function | camelCase | `calculateDistance()` |
 | Property | camelCase | `distanceYards` |

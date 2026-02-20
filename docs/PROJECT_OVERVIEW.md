@@ -60,7 +60,7 @@ HowFarDidIHitIt/
 ├── app/
 │   └── src/
 │       ├── main/
-│       │   ├── java/com/example/howfardidihitit/
+│       │   ├── java/com/smacktrack/golf/
 │       │   │   ├── data/           # Room DB, DAOs, repositories
 │       │   │   ├── domain/         # Models, use cases
 │       │   │   ├── location/       # GPS calibration, location services

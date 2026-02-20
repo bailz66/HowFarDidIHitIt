@@ -58,7 +58,7 @@ class HaversineTest {
 
 ### Test Location
 ```
-app/src/test/java/com/example/howfardidihitit/
+app/src/test/java/com/smacktrack/golf/
 ├── location/
 │   ├── HaversineTest.kt
 │   ├── GpsCalibrationTest.kt
@@ -138,7 +138,7 @@ class WeatherApiTest {
 
 ### Test Location
 ```
-app/src/androidTest/java/com/example/howfardidihitit/
+app/src/androidTest/java/com/smacktrack/golf/
 ├── data/
 │   └── ShotDaoTest.kt
 └── network/
@@ -199,7 +199,7 @@ class AnalyticsScreenTest {
 
 ### Test Location
 ```
-app/src/androidTest/java/com/example/howfardidihitit/
+app/src/androidTest/java/com/smacktrack/golf/
 └── ui/
     ├── ShotTrackerScreenTest.kt
     ├── AnalyticsScreenTest.kt
@@ -487,7 +487,7 @@ fun `special floating point values are rejected`(value: Double) {
 
 ### Boundary Value Tests (`app/src/test/`)
 ```
-com/example/howfardidihitit/
+com/smacktrack/golf/
 ├── location/
 │   ├── HaversineBoundaryTest.kt        (12 parameterized cases)
 │   └── GpsCalibrationBoundaryTest.kt   (12 test cases)
@@ -501,7 +501,7 @@ com/example/howfardidihitit/
 
 ### Data Validation Tests (`app/src/test/`)
 ```
-com/example/howfardidihitit/
+com/smacktrack/golf/
 └── validation/
     ├── GpsCoordinateValidationTest.kt   (coordinate range + NaN/Infinity)
     ├── ShotDistanceValidationTest.kt    (hard limits + per-club ranges)

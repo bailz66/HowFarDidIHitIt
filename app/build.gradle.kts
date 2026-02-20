@@ -5,13 +5,13 @@ plugins {
 }
 
 android {
-    namespace = "com.example.howfardidihitit"
+    namespace = "com.smacktrack.golf"
     compileSdk {
         version = release(36)
     }
 
     defaultConfig {
-        applicationId = "com.example.howfardidihitit"
+        applicationId = "com.smacktrack.golf"
         minSdk = 33
         targetSdk = 36
         versionCode = 1
@@ -52,6 +52,7 @@ dependencies {
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.compose.google.fonts)
 
     testImplementation(libs.junit)
     testImplementation(libs.junit5.api)
