@@ -212,7 +212,7 @@ private fun ClubSelectContent(
         }
 
         EpicButton(
-            text = "START",
+            text = "SMACK",
             enabled = selectedClub != null,
             pulsate = selectedClub != null
         ) { onStart() }
@@ -528,7 +528,7 @@ private fun WalkingContent(
 
         Spacer(Modifier.height(20.dp))
 
-        EpicButton(text = "END", onClick = onEnd)
+        EpicButton(text = "TRACK", onClick = onEnd)
 
         Spacer(Modifier.height(16.dp))
 
