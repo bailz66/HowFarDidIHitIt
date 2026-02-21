@@ -6,12 +6,21 @@ package com.smacktrack.golf
  * Hosts a [Scaffold] with a top app bar ("SmackTrack"), bottom navigation
  * (Tracker / Stats / History), and a settings overlay toggled via the gear icon.
  * All screens share a single [ShotTrackerViewModel] instance for consistent state.
+ *
+ * Handles runtime location permission request on first launch.
  */
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -32,9 +41,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -43,6 +55,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import com.smacktrack.golf.ui.ShotTrackerViewModel
 import com.smacktrack.golf.ui.screen.AnalyticsScreen
 import com.smacktrack.golf.ui.screen.HistoryScreen
@@ -54,7 +69,7 @@ import com.smacktrack.golf.ui.theme.LightGreenTint
 import com.smacktrack.golf.ui.theme.TextTertiary
 
 class MainActivity : ComponentActivity() {
-    private val viewModel = ShotTrackerViewModel()
+    private val viewModel by viewModels<ShotTrackerViewModel>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -72,6 +87,13 @@ private data class NavItem(
     val icon: ImageVector
 )
 
+private const val DONATE_URL = "https://ko-fi.com/smacktrack"
+
+private val locationPermissions = arrayOf(
+    Manifest.permission.ACCESS_FINE_LOCATION,
+    Manifest.permission.ACCESS_COARSE_LOCATION
+)
+
 private val navItems = listOf(
     NavItem("Tracker", Icons.Default.Place),
     NavItem("Stats", Icons.Default.Star),
@@ -82,11 +104,41 @@ private val navItems = listOf(
 @Composable
 fun SmackTrackApp(viewModel: ShotTrackerViewModel) {
     val uiState by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
     var selectedTab by remember { mutableIntStateOf(0) }
-    // 3 = settings (not in bottom nav, opened via icon)
-    var showSettings by remember { mutableIntStateOf(0) } // 0 = normal, 1 = settings
+    var showSettings by remember { mutableStateOf(false) }
+    var permissionRequested by remember { mutableStateOf(false) }
 
-    val currentlyShowingSettings = showSettings == 1
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val granted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+            permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        viewModel.onPermissionResult(granted)
+        permissionRequested = true
+    }
+
+    // Check permission on first composition; request once if not granted
+    LaunchedEffect(Unit) {
+        val alreadyGranted = locationPermissions.any {
+            ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
+        }
+        if (alreadyGranted) {
+            viewModel.onPermissionResult(true)
+        } else {
+            permissionLauncher.launch(locationPermissions)
+        }
+    }
+
+    // Re-check permission on each resume (user may have granted via Settings)
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        val granted = locationPermissions.any {
+            ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
+        }
+        if (granted) {
+            viewModel.onPermissionResult(true)
+        }
+    }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -95,7 +147,7 @@ fun SmackTrackApp(viewModel: ShotTrackerViewModel) {
             TopAppBar(
                 title = {
                     Text(
-                        text = if (currentlyShowingSettings) "Settings" else "SmackTrack",
+                        text = if (showSettings) "Settings" else "SmackTrack",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 0.sp
@@ -104,13 +156,13 @@ fun SmackTrackApp(viewModel: ShotTrackerViewModel) {
                 actions = {
                     IconButton(
                         onClick = {
-                            showSettings = if (currentlyShowingSettings) 0 else 1
+                            showSettings = !showSettings
                         }
                     ) {
                         Icon(
                             imageVector = Icons.Default.Settings,
                             contentDescription = "Settings",
-                            tint = if (currentlyShowingSettings) DarkGreen else TextTertiary,
+                            tint = if (showSettings) DarkGreen else TextTertiary,
                             modifier = Modifier.size(24.dp)
                         )
                     }
@@ -122,7 +174,7 @@ fun SmackTrackApp(viewModel: ShotTrackerViewModel) {
             )
         },
         bottomBar = {
-            if (!currentlyShowingSettings) {
+            if (!showSettings) {
                 NavigationBar(
                     containerColor = MaterialTheme.colorScheme.surface,
                     tonalElevation = 0.dp
@@ -152,7 +204,7 @@ fun SmackTrackApp(viewModel: ShotTrackerViewModel) {
             }
         }
     ) { innerPadding ->
-        if (currentlyShowingSettings) {
+        if (showSettings) {
             SettingsScreen(
                 settings = uiState.settings,
                 onDistanceUnitChanged = viewModel::updateDistanceUnit,
@@ -171,6 +223,17 @@ fun SmackTrackApp(viewModel: ShotTrackerViewModel) {
                     onMarkEnd = viewModel::markEnd,
                     onNextShot = viewModel::nextShot,
                     onReset = viewModel::reset,
+                    onWindDirectionChange = { viewModel.adjustWindDirection(45) },
+                    onWindSpeedChange = viewModel::adjustWindSpeed,
+                    onDonate = {
+                        try {
+                            context.startActivity(
+                                Intent(Intent.ACTION_VIEW, Uri.parse(DONATE_URL))
+                            )
+                        } catch (_: android.content.ActivityNotFoundException) {
+                            // No browser installed — silently ignore
+                        }
+                    },
                     modifier = Modifier.padding(innerPadding)
                 )
                 1 -> AnalyticsScreen(

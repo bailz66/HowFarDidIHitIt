@@ -7,6 +7,13 @@ package com.smacktrack.golf.network
  * labels, and temperature unit conversion.
  */
 
+data class WeatherData(
+    val temperatureCelsius: Double,
+    val weatherCode: Int,
+    val windSpeedKmh: Double,
+    val windDirectionDegrees: Int
+)
+
 /**
  * Maps WMO weather code to a human-readable label.
  * See https://open-meteo.com/en/docs for the full WMO code table.

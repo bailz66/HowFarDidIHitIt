@@ -61,6 +61,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.Canvas
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.Icon
 import com.smacktrack.golf.domain.Club
 import com.smacktrack.golf.location.WindCalculator
 import com.smacktrack.golf.ui.AppSettings
@@ -116,6 +122,9 @@ fun ShotTrackerScreen(
     onMarkEnd: () -> Unit,
     onNextShot: () -> Unit,
     onReset: () -> Unit,
+    onWindDirectionChange: () -> Unit = {},
+    onWindSpeedChange: (Double) -> Unit = {},
+    onDonate: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val settings = uiState.settings
@@ -136,7 +145,8 @@ fun ShotTrackerScreen(
                 recentShots = uiState.shotHistory.takeLast(3).reversed(),
                 settings = settings,
                 onClubSelected = onClubSelected,
-                onStart = onMarkStart
+                onStart = onMarkStart,
+                onDonate = onDonate
             )
             ShotPhase.CALIBRATING_START -> CalibratingContent(label = "Locking position")
             ShotPhase.WALKING -> {
@@ -158,7 +168,9 @@ fun ShotTrackerScreen(
                 ResultContent(
                     result = result,
                     settings = settings,
-                    onNextShot = onNextShot
+                    onNextShot = onNextShot,
+                    onWindDirectionChange = onWindDirectionChange,
+                    onWindSpeedChange = onWindSpeedChange
                 )
             }
         }
@@ -175,7 +187,8 @@ private fun ClubSelectContent(
     recentShots: List<ShotResult>,
     settings: AppSettings,
     onClubSelected: (Club) -> Unit,
-    onStart: () -> Unit
+    onStart: () -> Unit,
+    onDonate: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -256,7 +269,31 @@ private fun ClubSelectContent(
             }
         }
 
-        Spacer(Modifier.height(24.dp))
+        // Donate button
+        Spacer(Modifier.weight(1f))
+        Row(
+            modifier = Modifier
+                .align(Alignment.CenterHorizontally)
+                .clip(RoundedCornerShape(50))
+                .clickable { onDonate() }
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.FavoriteBorder,
+                contentDescription = null,
+                tint = TextTertiary,
+                modifier = Modifier.size(14.dp)
+            )
+            Text(
+                text = "Buy me a coffee",
+                style = MaterialTheme.typography.labelSmall,
+                color = TextTertiary
+            )
+        }
+
+        Spacer(Modifier.height(12.dp))
     }
 }
 
@@ -539,7 +576,9 @@ private fun WalkingContent(
 private fun ResultContent(
     result: ShotResult,
     settings: AppSettings,
-    onNextShot: () -> Unit
+    onNextShot: () -> Unit,
+    onWindDirectionChange: () -> Unit = {},
+    onWindSpeedChange: (Double) -> Unit = {}
 ) {
     val primaryDistance = if (settings.distanceUnit == DistanceUnit.YARDS) result.distanceYards else result.distanceMeters
     val primaryUnit = if (settings.distanceUnit == DistanceUnit.YARDS) "YARDS" else "METERS"
@@ -654,7 +693,16 @@ private fun ResultContent(
                             windSpeedKmh = result.windSpeedKmh,
                             distanceYards = result.distanceYards,
                             trajectoryMultiplier = settings.trajectory.multiplier,
-                            showEffect = true
+                            showEffect = true,
+                            onDirectionTap = onWindDirectionChange,
+                            onSpeedUp = {
+                                val delta = if (settings.windUnit == WindUnit.MPH) 1.60934 else 1.0
+                                onWindSpeedChange(delta)
+                            },
+                            onSpeedDown = {
+                                val delta = if (settings.windUnit == WindUnit.MPH) -1.60934 else -1.0
+                                onWindSpeedChange(delta)
+                            }
                         )
                     }
                 }
@@ -712,6 +760,19 @@ private fun ResultContent(
 /**
  * Wind indicator: colored arrow + carry/lateral effect numbers.
  */
+/**
+ * Wind strength label based on speed (km/h).
+ */
+private fun windStrengthLabel(windSpeedKmh: Double): String = when {
+    windSpeedKmh < 6   -> "None"
+    windSpeedKmh < 13  -> "Very Light"
+    windSpeedKmh < 20  -> "Light"
+    windSpeedKmh < 36  -> "Medium"
+    windSpeedKmh < 50  -> "Strong"
+    windSpeedKmh < 71  -> "Very Strong"
+    else               -> "Why are you even out here?!"
+}
+
 @Composable
 fun WindIndicator(
     windSpeedLabel: String,
@@ -721,7 +782,10 @@ fun WindIndicator(
     windSpeedKmh: Double = 0.0,
     distanceYards: Int = 0,
     trajectoryMultiplier: Double = 1.0,
-    showEffect: Boolean = false
+    showEffect: Boolean = false,
+    onDirectionTap: (() -> Unit)? = null,
+    onSpeedUp: (() -> Unit)? = null,
+    onSpeedDown: (() -> Unit)? = null
 ) {
     val effect = WindCalculator.analyze(
         windSpeedKmh = windSpeedKmh,
@@ -731,16 +795,46 @@ fun WindIndicator(
         trajectoryMultiplier = trajectoryMultiplier
     )
     val color = windCategoryColor(effect.colorCategory)
+    val hasControls = onSpeedUp != null || onSpeedDown != null
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Column(horizontalAlignment = Alignment.End) {
+            // Speed row: optional down arrow | speed | optional up arrow
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (hasControls && onSpeedDown != null) {
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowDown,
+                        contentDescription = "Decrease wind speed",
+                        tint = TextTertiary,
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clickable { onSpeedDown() }
+                    )
+                }
+                Text(
+                    text = windSpeedLabel,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+                if (hasControls && onSpeedUp != null) {
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowUp,
+                        contentDescription = "Increase wind speed",
+                        tint = TextTertiary,
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clickable { onSpeedUp() }
+                    )
+                }
+            }
+            // Wind strength description
             Text(
-                text = "$windSpeedLabel $windCompass",
-                style = MaterialTheme.typography.bodySmall,
-                color = TextSecondary
+                text = windStrengthLabel(windSpeedKmh),
+                style = MaterialTheme.typography.labelSmall,
+                color = TextTertiary
             )
             if (showEffect && windSpeedKmh > 0 && distanceYards > 0) {
                 val carryText = if (effect.carryEffectYards >= 0) {
@@ -767,11 +861,24 @@ fun WindIndicator(
             }
         }
 
-        WindArrow(
-            rotationDegrees = effect.relativeAngleDeg,
-            color = color,
-            modifier = Modifier.size(32.dp)
-        )
+        // Wind arrow + optional direction cycle button
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            WindArrow(
+                rotationDegrees = effect.relativeAngleDeg,
+                color = color,
+                modifier = Modifier.size(32.dp)
+            )
+            if (onDirectionTap != null) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = "Cycle wind direction",
+                    tint = TextTertiary,
+                    modifier = Modifier
+                        .size(20.dp)
+                        .clickable { onDirectionTap() }
+                )
+            }
+        }
     }
 }
 

@@ -11,8 +11,8 @@ A layered testing approach covering unit tests, integration tests, and UI tests.
         │  UI/E2E │  ← Fewest, slowest, highest confidence
         │  Tests  │     (Compose UI tests, Espresso)
         ├─────────┤
-        │ Integra-│  ← Middle: Room + DAO, API + Cache
-        │  tion   │     (Instrumented or Robolectric)
+        │ Integra-│  ← Middle: instrumented tests
+        │  tion   │     (Android context required)
         ├─────────┤
         │  Unit   │  ← Most, fastest, foundation
         │  Tests  │     (JUnit 5, pure Kotlin)
@@ -27,14 +27,14 @@ Fast, pure Kotlin tests. No Android framework dependencies. Run on JVM.
 | Component | Tests |
 |-----------|-------|
 | **Haversine formula** | Known coordinate pairs → expected distances. Edge cases: same point (0m), antipodal points, short distances, long distances. |
-| **GPS calibration algorithm** | Outlier rejection, median calculation, averaging. Inputs: normal cluster, cluster with spikes, all outliers, < 3 samples. |
+| **GPS calibration algorithm** | Outlier rejection, weighted centroid, accuracy gating. Inputs: normal cluster, cluster with spikes, all outliers, < 3 samples. |
 | **Weather code mapping** | Every WMO code → correct label. Unknown code → "Unknown". |
 | **Wind direction mapping** | Degrees → compass labels. Edge cases: 0° = N, 359° = N, 180° = S. |
 | **Temperature conversion** | °C → °F. Known values: 0°C = 32°F, 100°C = 212°F, -40°C = -40°F. |
 | **Club enum** | Sort order is correct. Display names are correct. All 18 clubs present. |
-| **Weather cache** | Fresh cache (< 1hr) returns cached. Stale cache (> 1hr) returns null/triggers fetch. Empty cache returns null. |
+| **Weather API parsing** | Valid JSON → WeatherData. Missing fields → null. Malformed JSON → null. |
 | **Distance formatting** | Meters → yards conversion. Rounding behavior. Display string formatting. |
-| **Filter logic** | Null filters (include all). Single filter. Combined filters. Empty result set. |
+| **Data validation** | GPS coordinates, shot distances, weather values, timestamps. |
 
 ### Example
 ```kotlin
@@ -59,153 +59,36 @@ class HaversineTest {
 ### Test Location
 ```
 app/src/test/java/com/smacktrack/golf/
-├── location/
-│   ├── HaversineTest.kt
-│   ├── GpsCalibrationTest.kt
-│   └── WindDirectionTest.kt
-├── network/
-│   ├── WeatherCodeMappingTest.kt
-│   ├── TemperatureConversionTest.kt
-│   └── WeatherCacheTest.kt
 ├── data/
-│   └── ClubEnumTest.kt
-└── ui/
-    └── FilterLogicTest.kt
+│   ├── ClubEnumBoundaryTest.kt
+│   └── DistanceFormattingBoundaryTest.kt
+├── location/
+│   ├── GpsCalibrationBoundaryTest.kt
+│   └── HaversineBoundaryTest.kt
+├── network/
+│   ├── WeatherBoundaryTest.kt
+│   └── WeatherServiceParseTest.kt
+└── validation/
+    ├── GpsCoordinateValidationTest.kt
+    ├── ShotDistanceValidationTest.kt
+    ├── ShotEntityValidationTest.kt
+    ├── TimestampValidationTest.kt
+    └── WeatherDataValidationTest.kt
 ```
 
 ## Integration Tests
-Test interactions between components. May require Android context (Room) or mock server (Retrofit).
+Test interactions between components. Require Android context.
 
-### Room + DAO Tests
-```kotlin
-@RunWith(AndroidJUnit4::class)
-class ShotDaoTest {
-    private lateinit var db: AppDatabase
-    private lateinit var dao: ShotDao
-
-    @Before
-    fun setup() {
-        db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
-        dao = db.shotDao()
-    }
-
-    @Test
-    fun insertAndRetrieve() = runTest {
-        val shot = Shot(startLat = 33.0, startLon = -84.0, ...)
-        dao.insert(shot)
-        val shots = dao.getAllShots().first()
-        assertEquals(1, shots.size)
-    }
-
-    @Test
-    fun clubStatsAggregation() = runTest {
-        // Insert 3 driver shots with known distances
-        // Verify AVG, MIN, MAX, COUNT
-    }
-
-    @Test
-    fun filterByDateRange() = runTest {
-        // Insert shots across different dates
-        // Verify date filter returns correct subset
-    }
-
-    @After
-    fun teardown() { db.close() }
-}
-```
-
-### Weather API Tests (MockWebServer)
-```kotlin
-class WeatherApiTest {
-    private lateinit var mockServer: MockWebServer
-    private lateinit var api: WeatherApi
-
-    @Test
-    fun `parses weather response correctly`() {
-        mockServer.enqueue(MockResponse().setBody(sampleWeatherJson))
-        val response = runBlocking { api.getCurrentWeather(33.0, -84.0) }
-        assertEquals(22.5, response.currentWeather.temperature)
-        assertEquals(1, response.currentWeather.weatherCode)
-    }
-
-    @Test
-    fun `handles server error gracefully`() {
-        mockServer.enqueue(MockResponse().setResponseCode(500))
-        // Verify error handling
-    }
-}
-```
-
-### Test Location
+### Instrumented Tests
 ```
 app/src/androidTest/java/com/smacktrack/golf/
-├── data/
-│   └── ShotDaoTest.kt
-└── network/
-    └── WeatherApiTest.kt
+└── ExampleInstrumentedTest.kt
 ```
+
+Currently a basic instrumented test to verify the app context. Room/DAO tests are not applicable — the app uses in-memory data only (no database).
 
 ## UI Tests (Compose Testing)
-Test user workflows through the actual Compose UI.
-
-### Screen Tests
-```kotlin
-class ShotTrackerScreenTest {
-    @get:Rule
-    val composeTestRule = createComposeRule()
-
-    @Test
-    fun `club selector shows all clubs`() {
-        composeTestRule.setContent { ShotTrackerScreen(...) }
-        composeTestRule.onNodeWithText("Driver").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Lob Wedge").assertIsDisplayed()
-    }
-
-    @Test
-    fun `mark start button disabled without club selection`() {
-        composeTestRule.setContent { ShotTrackerScreen(...) }
-        composeTestRule.onNodeWithText("Mark Start").assertIsNotEnabled()
-    }
-
-    @Test
-    fun `shows calibrating indicator when marking`() {
-        // Trigger mark start, verify "Calibrating..." appears
-    }
-
-    @Test
-    fun `shot result displays distance and weather`() {
-        // Set up state with completed shot
-        // Verify distance, club, weather all displayed
-    }
-}
-```
-
-### Analytics Screen Tests
-```kotlin
-class AnalyticsScreenTest {
-    @Test
-    fun `shows empty state when no shots`() { ... }
-
-    @Test
-    fun `displays club stats correctly`() { ... }
-
-    @Test
-    fun `filter chips appear and are dismissible`() { ... }
-
-    @Test
-    fun `clearing filters resets to default`() { ... }
-}
-```
-
-### Test Location
-```
-app/src/androidTest/java/com/smacktrack/golf/
-└── ui/
-    ├── ShotTrackerScreenTest.kt
-    ├── AnalyticsScreenTest.kt
-    ├── ShotHistoryScreenTest.kt
-    └── NavigationTest.kt
-```
+Test user workflows through the actual Compose UI. Currently planned but not yet implemented.
 
 ## Test Configuration
 
@@ -213,33 +96,30 @@ app/src/androidTest/java/com/smacktrack/golf/
 ```toml
 [versions]
 junit5 = "5.10.2"
-mockk = "1.13.10"
-turbine = "1.1.0"
-mockwebserver = "4.12.0"
+androidJunit5 = "1.10.2.0"
 
 [libraries]
 junit5-api = { group = "org.junit.jupiter", name = "junit-jupiter-api", version.ref = "junit5" }
 junit5-engine = { group = "org.junit.jupiter", name = "junit-jupiter-engine", version.ref = "junit5" }
-mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
-turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
-mockwebserver = { group = "com.squareup.okhttp3", name = "mockwebserver", version.ref = "mockwebserver" }
+junit5-params = { group = "org.junit.jupiter", name = "junit-jupiter-params", version.ref = "junit5" }
+junit5-launcher = { group = "org.junit.platform", name = "junit-platform-launcher", version = "1.10.2" }
+json = { group = "org.json", name = "json", version = "20231013" }
 ```
 
 ### Test Libraries & Their Purpose
 | Library | Purpose |
 |---------|---------|
 | JUnit 5 | Test framework — assertions, lifecycle, parameterized tests |
-| MockK | Kotlin-first mocking library (mock LocationService, WeatherApi) |
-| Turbine | Testing Kotlin `Flow` — assert emissions from Room queries |
-| MockWebServer | Mock HTTP server for Retrofit tests |
-| Compose UI Test | `createComposeRule()`, `onNodeWithText()`, etc. |
-| Robolectric | Run instrumented-style tests on JVM (faster than emulator) |
+| JUnit 5 Params | `@ParameterizedTest` with `@CsvSource`, `@EnumSource`, `@ValueSource` |
+| JUnit Platform Launcher | Required runtime dependency for JUnit 5 on Android/Gradle |
+| org.json | JVM-compatible JSON parsing for `WeatherServiceParseTest` (mirrors Android's `org.json`) |
+| Compose UI Test | `createComposeRule()`, `onNodeWithText()`, etc. (planned) |
 
 ## CI Integration
 See [Deployment](./DEPLOYMENT.md) for the full GitHub Actions workflow. Key points:
-- All tests run on every push and PR
+- All tests run on every push and PR to `master`, `main`, and `release/**`
 - Unit tests run first (fast fail)
-- Integration and UI tests run on an Android emulator in CI
+- Integration tests run on an Android emulator in CI (after unit tests pass)
 - Test reports uploaded as artifacts
 - PR cannot merge if tests fail
 
@@ -247,7 +127,7 @@ See [Deployment](./DEPLOYMENT.md) for the full GitHub Actions workflow. Key poin
 | Layer | Target |
 |-------|--------|
 | Unit (business logic) | 90%+ |
-| Integration (Room, API) | 80%+ |
+| Integration | Key paths covered |
 | UI (critical paths) | Key workflows covered |
 | Overall | 80%+ |
 
@@ -257,7 +137,7 @@ See [Deployment](./DEPLOYMENT.md) for the full GitHub Actions workflow. Key poin
 ```
 Examples:
 - `calibration with 5 valid samples returns averaged coordinate`
-- `cache older than 1 hour is treated as stale`
+- `parses valid Open-Meteo response`
 - `empty shot list shows friendly empty state`
 
 ---
@@ -339,17 +219,18 @@ All boundary tests use JUnit 5 `@ParameterizedTest` with `@CsvSource` for tabula
 | 100 | Unknown |
 | MAX_INT | Unknown |
 
-### Weather Cache Boundaries (`WeatherCacheBoundaryTest.kt`)
+### WeatherService JSON Parsing (`WeatherServiceParseTest.kt`)
 
-| Test Case | Cache Age | Expected |
-|-----------|-----------|----------|
-| Empty cache | N/A | `null` |
-| 0ms age | 0ms | Returns data |
-| 59m 59s | 3,599,000ms | Returns data (valid) |
-| Exactly 1hr | 3,600,000ms | `null` (stale) |
-| 1hr + 1ms | 3,600,001ms | `null` (stale) |
-| After clear | N/A | `null` |
-| After replace | 0ms | Returns new data |
+| Test Case | Input | Expected |
+|-----------|-------|----------|
+| Valid response | Complete `current` object | All 4 fields parsed |
+| Zero values | All fields = 0 | Valid WeatherData with zeros |
+| Negative temp | -12.7°C | Parsed correctly |
+| Empty JSON | `""` | `null` |
+| Invalid JSON | `"not json"` | `null` |
+| Missing `current` | `{ "hourly": {} }` | `null` |
+| Missing fields | Only `temperature_2m` | `null` |
+| Extra fields | Extra fields in `current` | Parsed (extra ignored) |
 
 ### Club Enum Boundaries (`ClubEnumBoundaryTest.kt`)
 
@@ -392,7 +273,7 @@ Validation tests ensure all data entering the system is physically plausible and
 
 ### Shot Distance Validation (`ShotDistanceValidationTest.kt`)
 
-**Hard Limits (all clubs):** 0–500 yards
+**Hard Limits (all clubs):** 0-500 yards
 
 **Per-Club Plausible Ranges:**
 
@@ -422,8 +303,8 @@ Validation tests ensure all data entering the system is physically plausible and
 | Field | Valid Range | Source |
 |-------|-----------|--------|
 | Temperature | -89.2°C to 56.7°C | Earth record extremes |
-| Wind speed | 0–253 mph | Record wind speed |
-| Wind direction | 0–359° | Compass degrees |
+| Wind speed | 0-253 mph | Record wind speed |
+| Wind direction | 0-359° | Compass degrees |
 | All-or-nothing | All 4 fields present, or all null | Data consistency |
 
 ### Timestamp Validation (`TimestampValidationTest.kt`)
@@ -431,9 +312,9 @@ Validation tests ensure all data entering the system is physically plausible and
 | Rule | Details |
 |------|---------|
 | Positive | Must be > 0 |
-| After 2023 | Must be ≥ 1672531200000 (Jan 1 2023 UTC) |
-| Not future | Must be ≤ now + 60s tolerance |
-| Milliseconds | Must be ≥ 1,000,000,000,000 (rejects seconds) |
+| After 2023 | Must be >= 1672531200000 (Jan 1 2023 UTC) |
+| Not future | Must be <= now + 60s tolerance |
+| Milliseconds | Must be >= 1,000,000,000,000 (rejects seconds) |
 
 ### Shot Entity Validation (`ShotEntityValidationTest.kt`)
 
@@ -488,15 +369,15 @@ fun `special floating point values are rejected`(value: Double) {
 ### Boundary Value Tests (`app/src/test/`)
 ```
 com/smacktrack/golf/
+├── data/
+│   ├── ClubEnumBoundaryTest.kt         (8 test cases)
+│   └── DistanceFormattingBoundaryTest.kt (8 parameterized groups)
 ├── location/
 │   ├── HaversineBoundaryTest.kt        (12 parameterized cases)
 │   └── GpsCalibrationBoundaryTest.kt   (12 test cases)
-├── network/
-│   ├── WeatherBoundaryTest.kt          (25+ parameterized cases)
-│   └── WeatherCacheBoundaryTest.kt     (7 test cases)
-└── data/
-    ├── ClubEnumBoundaryTest.kt         (8 test cases)
-    └── DistanceFormattingBoundaryTest.kt (8 parameterized groups)
+└── network/
+    ├── WeatherBoundaryTest.kt          (25+ parameterized cases)
+    └── WeatherServiceParseTest.kt      (8 test cases)
 ```
 
 ### Data Validation Tests (`app/src/test/`)
@@ -509,3 +390,5 @@ com/smacktrack/golf/
     ├── TimestampValidationTest.kt       (epoch ms, not future, after 2023)
     └── ShotEntityValidationTest.kt      (full entity integration validation)
 ```
+
+**Total: 11 test files** across boundary, validation, and API parsing categories.

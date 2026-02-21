@@ -41,7 +41,8 @@ A GPS-powered golf distance tracking app for Android. Walk to your ball, tap to 
 | **UI** | Jetpack Compose + Material 3 |
 | **Architecture** | MVVM with StateFlow |
 | **Typography** | Google Fonts (Poppins + Roboto tabular figures) |
-| **GPS** | Haversine formula with accuracy-weighted calibration |
+| **GPS** | FusedLocationProviderClient (Google Play Services Location) with accuracy-weighted calibration |
+| **Weather** | Open-Meteo API (free, no key required) via `HttpURLConnection` + `org.json` |
 | **Wind Model** | Physics-based, calibrated against TrackMan data |
 | **Testing** | JUnit 5 with parameterized boundary/validation tests |
 | **CI/CD** | GitHub Actions |
@@ -58,10 +59,11 @@ app/src/main/java/com/smacktrack/golf/
 ├── location/               # GPS and distance utilities
 │   ├── GpsCalibrator.kt    # Accuracy-weighted GPS calibration with MAD outlier rejection
 │   ├── HaversineCalculator.kt  # Great-circle distance and bearing
+│   ├── LocationProvider.kt # FusedLocationProviderClient wrapper (Flow-based)
 │   └── WindCalculator.kt   # Physics-based wind effect model
 ├── network/                # Weather data
-│   ├── WeatherCache.kt     # 1-hour TTL in-memory cache
-│   └── WeatherMapper.kt    # WMO codes, compass directions, unit conversion
+│   ├── WeatherService.kt   # Open-Meteo API client (HttpURLConnection with timeouts)
+│   └── WeatherMapper.kt    # WMO codes, compass directions, unit conversion, WeatherData model
 ├── ui/                     # Presentation layer
 │   ├── ShotTrackerViewModel.kt  # Central state management
 │   ├── screen/

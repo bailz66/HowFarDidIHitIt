@@ -54,12 +54,24 @@ echo "Emulator ready"
 /c/Users/User/AppData/Local/Android/Sdk/platform-tools/adb.exe devices
 ```
 
+## Building Release
+
+```bash
+export JAVA_HOME="F:/android-studio/jbr"
+./gradlew assembleRelease
+```
+
 ## Running Tests
 
 ```bash
 export JAVA_HOME="F:/android-studio/jbr"
 ./gradlew testDebugUnitTest
 ```
+
+## Key Dependencies
+
+- `play-services-location` — GPS via FusedLocationProviderClient
+- `org.json:json` — test-only dependency for WeatherService JSON parsing tests
 
 ## GitHub
 

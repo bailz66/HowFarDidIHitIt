@@ -8,15 +8,15 @@ CI/CD pipeline using GitHub Actions. Automated builds, tests, and release artifa
 
 ### Workflow: `ci.yml` — Runs on Every Push & PR
 
-Triggers on pushes and PRs to `master`/`main`. Uses `gradle/actions/setup-gradle@v4` for Gradle caching and concurrency groups to cancel stale runs.
+Triggers on pushes and PRs to `master`/`main`/`release/**`. Uses `gradle/actions/setup-gradle@v4` for Gradle caching and concurrency groups to cancel stale runs.
 
 ```yaml
 name: CI
 on:
   push:
-    branches: [master, main]
+    branches: [master, main, 'release/**']
   pull_request:
-    branches: [master, main]
+    branches: [master, main, 'release/**']
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -167,7 +167,9 @@ This project uses **GitLab Flow** for branching. See [Branching Strategy](./BRAN
 | Event | `ci.yml` | `release.yml` |
 |-------|----------|---------------|
 | Push to `master` | Yes | No |
+| Push to `release/**` | Yes | No |
 | PR to `master` | Yes | No |
+| PR to `release/**` | Yes | No |
 | `v*` tag push | No | Yes |
 | Feature branch PR | Yes | No |
 
@@ -180,8 +182,8 @@ This project uses **GitLab Flow** for branching. See [Branching Strategy](./BRAN
 ### Release Signing
 - Generate a release keystore (do this once, keep it safe):
 ```bash
-keytool -genkey -v -keystore howfardidihitit-release.keystore \
-  -alias howfardidihitit -keyalg RSA -keysize 2048 -validity 10000
+keytool -genkey -v -keystore smacktrack-release.keystore \
+  -alias smacktrack -keyalg RSA -keysize 2048 -validity 10000
 ```
 - **NEVER commit the keystore to git**
 - Store keystore and passwords as GitHub Secrets:
@@ -225,7 +227,7 @@ android {
 
 | Field | Value |
 |-------|-------|
-| App name | How Far Did I Hit It |
+| App name | SmackTrack |
 | Short description | Simple golf GPS — measure how far you hit the ball |
 | Full description | See below |
 | Category | Sports |
@@ -237,7 +239,7 @@ android {
 
 **Full description draft:**
 ```
-How Far Did I Hit It is the simplest way to measure your golf shot distances.
+SmackTrack is the simplest way to measure your golf shot distances.
 
 No subscriptions. No ads. No account needed. Just tap, walk, and tap.
 

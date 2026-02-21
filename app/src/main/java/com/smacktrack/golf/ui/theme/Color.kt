@@ -29,5 +29,4 @@ val LightGreenTint = Color(0xFFE8F5E9)
 
 // Error
 val Red40 = Color(0xFFBA1A1A)
-val Red80 = Color(0xFFFFB4AB)
 val Red90 = Color(0xFFFFDAD6)

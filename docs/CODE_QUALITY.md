@@ -52,10 +52,10 @@ fun ShowShotResult(shot: Shot, onDismiss: () -> Unit) { ... }
 ## Architecture Rules
 
 ### Layer Boundaries
-- **UI layer** (screens, composables) NEVER directly accesses Room or Retrofit
-- **ViewModels** access data through **repositories only**
-- **Repositories** are the single source of truth for data
-- **Services** (Location, Weather) are injected via Hilt, not instantiated directly
+- **UI layer** (screens, composables) NEVER directly accesses network or GPS services
+- **ViewModel** manages all state and coordinates between services
+- **Services** (LocationProvider, WeatherService) are instantiated directly — no DI framework
+- **No repository pattern** — data is in-memory only, managed in the ViewModel
 
 ### State Management
 - UI state is an **immutable data class** exposed as `StateFlow<T>`
@@ -66,13 +66,15 @@ fun ShowShotResult(shot: Shot, onDismiss: () -> Unit) { ... }
 ```kotlin
 // UI State
 data class ShotTrackerUiState(
-    val selectedClub: Club? = null,
-    val startPin: GpsCoordinate? = null,
-    val endPin: GpsCoordinate? = null,
-    val liveDistanceYards: Double? = null,
-    val isCalibrating: Boolean = false,
+    val phase: ShotPhase = ShotPhase.CLUB_SELECT,
+    val selectedClub: Club? = Club.DRIVER,
+    val startCoordinate: GpsCoordinate? = null,
+    val liveDistanceYards: Int = 0,
+    val liveDistanceMeters: Int = 0,
     val shotResult: ShotResult? = null,
-    val error: String? = null
+    val shotHistory: List<ShotResult> = emptyList(),
+    val settings: AppSettings = AppSettings(),
+    val locationPermissionGranted: Boolean = false
 )
 ```
 
@@ -90,19 +92,10 @@ data class ShotTrackerUiState(
 - **Zero warnings** policy for new code — fix warnings, don't suppress them
 - Suppress only with documented justification: `@Suppress("reason: ...")`
 
-### Detekt (Kotlin Static Analysis)
-Configuration in `detekt.yml`:
-- Max function length: 30 lines (composables excluded)
-- Max class length: 200 lines
-- Complexity threshold: 10 (cyclomatic)
-- No magic numbers — use named constants
-- No wildcard imports
-
-### ktlint (Formatting)
-- Enforced via pre-commit hook or CI
-- Standard Kotlin style — no custom rules
-- Max line length: 120 characters
-- Trailing commas in multiline declarations
+### Future: Static Analysis
+Detekt and ktlint are not currently configured. When the project grows, consider adding:
+- Detekt for complexity and code smell detection
+- ktlint for consistent formatting
 
 ## Documentation Standards
 
@@ -164,7 +157,7 @@ chore/update-dependencies
 
 ## Performance Guidelines
 - Compose: avoid recomposition of expensive composables — use `key()` and `remember`
-- Room queries return `Flow<T>` — observe reactively, don't poll
+- StateFlow: observe reactively via `collectAsStateWithLifecycle()`
 - GPS: don't request high-frequency updates when the app is idle
 - Images: use vector drawables where possible, compress bitmaps
 - Startup: keep `onCreate` fast — defer non-critical initialization
