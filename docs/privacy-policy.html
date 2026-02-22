@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmackTrack - Privacy Policy</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            max-width: 720px;
+            margin: 0 auto;
+            padding: 2rem 1.5rem;
+            line-height: 1.7;
+            color: #1a1a1a;
+            background: #fafafa;
+        }
+        h1 { color: #2e7d32; margin-bottom: 0.25rem; }
+        h2 { color: #333; margin-top: 2rem; }
+        .subtitle { color: #666; margin-top: 0; }
+        .updated { color: #888; font-size: 0.9rem; }
+        ul { padding-left: 1.5rem; }
+        li { margin-bottom: 0.5rem; }
+        a { color: #2e7d32; }
+        .footer { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid #ddd; color: #888; font-size: 0.85rem; }
+    </style>
+</head>
+<body>
+
+<h1>SmackTrack Privacy Policy</h1>
+<p class="subtitle">Golf Shot Distance Tracker</p>
+<p class="updated">Last updated: February 22, 2026</p>
+
+<h2>What the app does</h2>
+<p>SmackTrack uses your phone's GPS to measure how far you hit a golf ball. That's it.</p>
+
+<h2>Location data</h2>
+<ul>
+    <li>GPS is used <strong>only</strong> to calculate the distance between your start and end positions on the golf course.</li>
+    <li>Your coordinates are <strong>never transmitted, uploaded, or shared</strong> with any server or third party.</li>
+    <li>Raw GPS coordinates are not stored. Only the calculated distance in yards/meters is saved to your shot history.</li>
+</ul>
+
+<h2>Weather data</h2>
+<ul>
+    <li>When a shot is recorded, the app sends your approximate location to the <a href="https://open-meteo.com/">Open-Meteo</a> weather API to fetch current wind and temperature conditions.</li>
+    <li>Open-Meteo is a free, open-source weather API. Their privacy policy is available on their website.</li>
+    <li>No other network requests are made by the app.</li>
+</ul>
+
+<h2>Data stored on your device</h2>
+<ul>
+    <li><strong>Shot history:</strong> Club used, distance, weather conditions, and timestamp.</li>
+    <li><strong>Settings:</strong> Your preferred units (yards/meters, mph/km/h, &deg;F/&deg;C), trajectory, and club selections.</li>
+    <li>All data is stored locally on your device using Android SharedPreferences.</li>
+    <li>No data is stored on external servers or in the cloud.</li>
+</ul>
+
+<h2>Data we collect</h2>
+<p><strong>None.</strong> We do not collect, track, or transmit any personal information. There are no analytics, no advertising SDKs, no user accounts, and no telemetry.</p>
+
+<h2>Third-party services</h2>
+<ul>
+    <li><strong>Open-Meteo</strong> &mdash; weather data only (no personal data sent, just coordinates for the weather lookup).</li>
+    <li><strong>Google Play Services</strong> &mdash; used for GPS location via FusedLocationProviderClient.</li>
+</ul>
+<p>No advertising networks, analytics platforms, or social media SDKs are included in the app.</p>
+
+<h2>Children's privacy</h2>
+<p>The app does not knowingly collect any data from anyone, including children under 13.</p>
+
+<h2>Changes to this policy</h2>
+<p>If we update this policy, the changes will be posted on this page with a new "last updated" date.</p>
+
+<h2>Contact</h2>
+<p>Questions or concerns? Open an issue on our <a href="https://github.com/bailz66/HowFarDidIHitIt">GitHub repository</a>.</p>
+
+<div class="footer">
+    <p>&copy; 2026 SmackTrack. Built with care for golfers who just want to know how far they hit it.</p>
+</div>
+
+</body>
+</html>
