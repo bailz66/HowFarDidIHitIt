@@ -225,6 +225,7 @@ fun SmackTrackApp(viewModel: ShotTrackerViewModel) {
                     onReset = viewModel::reset,
                     onWindDirectionChange = { viewModel.adjustWindDirection(45) },
                     onWindSpeedChange = viewModel::adjustWindSpeed,
+                    onDeleteShot = viewModel::deleteShot,
                     onDonate = {
                         try {
                             context.startActivity(
@@ -239,11 +240,13 @@ fun SmackTrackApp(viewModel: ShotTrackerViewModel) {
                 1 -> AnalyticsScreen(
                     shotHistory = uiState.shotHistory,
                     settings = uiState.settings,
+                    onDeleteShot = viewModel::deleteShot,
                     modifier = Modifier.padding(innerPadding)
                 )
                 2 -> HistoryScreen(
                     shotHistory = uiState.shotHistory,
                     settings = uiState.settings,
+                    onDeleteShot = viewModel::deleteShot,
                     modifier = Modifier.padding(innerPadding)
                 )
             }

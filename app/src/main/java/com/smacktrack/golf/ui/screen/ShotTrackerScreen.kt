@@ -43,11 +43,17 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -62,11 +68,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.Canvas
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Icon
+import androidx.compose.ui.platform.LocalContext
 import com.smacktrack.golf.domain.Club
 import com.smacktrack.golf.location.WindCalculator
 import com.smacktrack.golf.ui.AppSettings
@@ -86,6 +95,8 @@ import com.smacktrack.golf.ui.theme.TextSecondary
 import com.smacktrack.golf.ui.theme.TextTertiary
 import com.smacktrack.golf.ui.theme.clubChipColor
 import com.smacktrack.golf.ui.theme.windCategoryColor
+import com.smacktrack.golf.ui.share.ShareUtil
+import com.smacktrack.golf.ui.share.ShotCardRenderer
 
 // Distance number styles — Roboto with tabular figures so digits don't jump
 private val DistanceLive = TextStyle(
@@ -106,14 +117,6 @@ private val DistanceResult = TextStyle(
     fontFeatureSettings = "tnum"
 )
 
-// Category display order
-private val categoryOrder = listOf(
-    Club.Category.WOOD,
-    Club.Category.HYBRID,
-    Club.Category.IRON,
-    Club.Category.WEDGE
-)
-
 @Composable
 fun ShotTrackerScreen(
     uiState: ShotTrackerUiState,
@@ -124,6 +127,7 @@ fun ShotTrackerScreen(
     onReset: () -> Unit,
     onWindDirectionChange: () -> Unit = {},
     onWindSpeedChange: (Double) -> Unit = {},
+    onDeleteShot: (Int) -> Unit = {},
     onDonate: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -140,12 +144,11 @@ fun ShotTrackerScreen(
     ) { phase ->
         when (phase) {
             ShotPhase.CLUB_SELECT -> ClubSelectContent(
-                selectedClub = uiState.selectedClub,
-                enabledClubs = settings.enabledClubs,
                 recentShots = uiState.shotHistory.takeLast(3).reversed(),
+                shotHistorySize = uiState.shotHistory.size,
                 settings = settings,
-                onClubSelected = onClubSelected,
                 onStart = onMarkStart,
+                onDeleteShot = onDeleteShot,
                 onDonate = onDonate
             )
             ShotPhase.CALIBRATING_START -> CalibratingContent(label = "Locking position")
@@ -167,6 +170,7 @@ fun ShotTrackerScreen(
                 val result = uiState.shotResult ?: return@AnimatedContent
                 ResultContent(
                     result = result,
+                    shotHistory = uiState.shotHistory,
                     settings = settings,
                     onNextShot = onNextShot,
                     onWindDirectionChange = onWindDirectionChange,
@@ -179,80 +183,52 @@ fun ShotTrackerScreen(
 
 // ── Club Selection ──────────────────────────────────────────────────────────
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ClubSelectContent(
-    selectedClub: Club?,
-    enabledClubs: Set<Club>,
     recentShots: List<ShotResult>,
+    shotHistorySize: Int,
     settings: AppSettings,
-    onClubSelected: (Club) -> Unit,
     onStart: () -> Unit,
+    onDeleteShot: (Int) -> Unit = {},
     onDonate: () -> Unit = {}
 ) {
+    var pendingDeleteIndex by remember { mutableStateOf<Int?>(null) }
+
+    pendingDeleteIndex?.let { index ->
+        AlertDialog(
+            onDismissRequest = { pendingDeleteIndex = null },
+            title = { Text("Delete shot?") },
+            text = { Text("This shot will be permanently removed.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    onDeleteShot(index)
+                    pendingDeleteIndex = null
+                }) { Text("Delete", color = Color(0xFFE53935)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeleteIndex = null }) { Text("Cancel") }
+            }
+        )
+    }
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 24.dp)
+            .padding(horizontal = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(Modifier.height(8.dp))
-
-        // START button at the top
-        if (selectedClub != null) {
-            Text(
-                text = selectedClub.displayName,
-                style = MaterialTheme.typography.titleMedium,
-                color = DarkGreen,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier
-                    .align(Alignment.CenterHorizontally)
-                    .padding(bottom = 12.dp)
-            )
-        }
+        Spacer(Modifier.weight(1f))
 
         EpicButton(
             text = "SMACK",
-            enabled = selectedClub != null,
-            pulsate = selectedClub != null
+            enabled = true,
+            pulsate = true
         ) { onStart() }
 
-        Spacer(Modifier.height(8.dp))
-
-        // Club chips below
-        categoryOrder.forEach { category ->
-            val clubs = Club.entries
-                .filter { it.category == category && it in enabledClubs }
-                .sortedBy { it.sortOrder }
-            if (clubs.isNotEmpty()) {
-                Text(
-                    text = category.name,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = TextSecondary,
-                    fontWeight = FontWeight.SemiBold,
-                    letterSpacing = 1.5.sp,
-                    modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
-                )
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    clubs.forEach { club ->
-                        ClubChip(
-                            club = club,
-                            selected = club == selectedClub,
-                            onClick = { onClubSelected(club) }
-                        )
-                    }
-                }
-            }
-        }
+        Spacer(Modifier.weight(1f))
 
         // Recent shots
         if (recentShots.isNotEmpty()) {
-            Spacer(Modifier.height(24.dp))
-
             Text(
                 text = "RECENT",
                 style = MaterialTheme.typography.labelMedium,
@@ -263,42 +239,54 @@ private fun ClubSelectContent(
 
             Spacer(Modifier.height(10.dp))
 
-            recentShots.forEach { shot ->
-                RecentShotRow(shot, settings)
+            recentShots.forEachIndexed { displayIndex, shot ->
+                val actualIndex = shotHistorySize - 1 - displayIndex
+                RecentShotRow(
+                    shot = shot,
+                    settings = settings,
+                    onDelete = { pendingDeleteIndex = actualIndex }
+                )
                 Spacer(Modifier.height(8.dp))
             }
         }
 
-        // Donate button
-        Spacer(Modifier.weight(1f))
-        Row(
+        // Donate tile
+        Spacer(Modifier.height(8.dp))
+        Box(
             modifier = Modifier
-                .align(Alignment.CenterHorizontally)
-                .clip(RoundedCornerShape(50))
+                .fillMaxWidth(0.6f)
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color(0xFFFFF3E0))
+                .border(1.dp, Color(0xFFFFCC80), RoundedCornerShape(16.dp))
                 .clickable { onDonate() }
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            contentAlignment = Alignment.Center
         ) {
-            Icon(
-                imageVector = Icons.Default.FavoriteBorder,
-                contentDescription = null,
-                tint = TextTertiary,
-                modifier = Modifier.size(14.dp)
-            )
-            Text(
-                text = "Buy me a coffee",
-                style = MaterialTheme.typography.labelSmall,
-                color = TextTertiary
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.FavoriteBorder,
+                    contentDescription = null,
+                    tint = Color(0xFFE65100),
+                    modifier = Modifier.size(16.dp)
+                )
+                Text(
+                    text = "Buy me a coffee",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color(0xFFBF360C),
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
         }
 
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(16.dp))
     }
 }
 
 @Composable
-private fun RecentShotRow(shot: ShotResult, settings: AppSettings) {
+private fun RecentShotRow(shot: ShotResult, settings: AppSettings, onDelete: (() -> Unit)? = null) {
     val distance = if (settings.distanceUnit == DistanceUnit.YARDS) shot.distanceYards else shot.distanceMeters
     val unitLabel = if (settings.distanceUnit == DistanceUnit.YARDS) "yds" else "m"
 
@@ -307,7 +295,7 @@ private fun RecentShotRow(shot: ShotResult, settings: AppSettings) {
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
             .background(ChipUnselectedBg)
-            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -329,7 +317,7 @@ private fun RecentShotRow(shot: ShotResult, settings: AppSettings) {
                 )
             }
 
-            // Distance
+            // Distance + delete
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = "$distance",
@@ -346,6 +334,16 @@ private fun RecentShotRow(shot: ShotResult, settings: AppSettings) {
                     style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary
                 )
+                if (onDelete != null) {
+                    IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Delete shot",
+                            tint = TextTertiary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
             }
         }
     }
@@ -575,6 +573,7 @@ private fun WalkingContent(
 @Composable
 private fun ResultContent(
     result: ShotResult,
+    shotHistory: List<ShotResult> = emptyList(),
     settings: AppSettings,
     onNextShot: () -> Unit,
     onWindDirectionChange: () -> Unit = {},
@@ -654,6 +653,51 @@ private fun ResultContent(
                     style = MaterialTheme.typography.bodyMedium,
                     color = TextSecondary
                 )
+
+                // Celebration for top shots with a club
+                val currentDistance = if (settings.distanceUnit == DistanceUnit.YARDS) result.distanceYards else result.distanceMeters
+                val priorShots = shotHistory.filter { it.club == result.club && it.timestampMs != result.timestampMs }
+                if (priorShots.size >= 5) {
+                    val beatenCount = priorShots.count { shot ->
+                        val d = if (settings.distanceUnit == DistanceUnit.YARDS) shot.distanceYards else shot.distanceMeters
+                        currentDistance >= d
+                    }
+                    val percentile = beatenCount.toFloat() / priorShots.size.toFloat() * 100f
+                    when {
+                        percentile >= 95f -> {
+                            Spacer(Modifier.height(16.dp))
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .background(Color(0xFFFFAB00).copy(alpha = 0.12f))
+                                    .padding(horizontal = 20.dp, vertical = 8.dp)
+                            ) {
+                                Text(
+                                    text = "Absolutely Smacked!",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFFFAB00)
+                                )
+                            }
+                        }
+                        percentile >= 80f -> {
+                            Spacer(Modifier.height(16.dp))
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .background(DarkGreen.copy(alpha = 0.10f))
+                                    .padding(horizontal = 20.dp, vertical = 8.dp)
+                            ) {
+                                Text(
+                                    text = "Smacked!",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = DarkGreen
+                                )
+                            }
+                        }
+                    }
+                }
 
                 Spacer(Modifier.height(24.dp))
 
@@ -747,7 +791,41 @@ private fun ResultContent(
             }
         }
 
-        Spacer(Modifier.height(28.dp))
+        Spacer(Modifier.height(16.dp))
+
+        // Share button
+        val context = LocalContext.current
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(50))
+                .clickable {
+                    val bitmap = ShotCardRenderer.render(
+                        context = context,
+                        result = result,
+                        settings = settings,
+                        shotHistory = shotHistory
+                    )
+                    ShareUtil.shareShotCard(context, bitmap)
+                }
+                .padding(horizontal = 24.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Share,
+                contentDescription = "Share shot",
+                tint = DarkGreen,
+                modifier = Modifier.size(20.dp)
+            )
+            Text(
+                text = "Share",
+                style = MaterialTheme.typography.labelLarge,
+                color = DarkGreen,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+
+        Spacer(Modifier.height(16.dp))
 
         EpicButton(text = "NEXT SHOT", onClick = onNextShot)
 

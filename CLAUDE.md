@@ -68,6 +68,16 @@ export JAVA_HOME="F:/android-studio/jbr"
 ./gradlew testDebugUnitTest
 ```
 
+## Features
+
+- **Smack page** — centered Smack button, last 3 recent shots (swipe left to delete), donate tile
+- **Walking page** — live distance counter, club selection chips, Track button with extended GPS calibration
+- **History page** — full shot history with swipe-to-delete
+- **Result page** — distance card with weather, wind arrow, wind-adjusted carry
+- **Settings** — distance/wind/temperature units, trajectory, club toggles
+- **GPS calibration** — accuracy-weighted multi-sample calibration; fresh GPS warmup on each new shot; start 3.5s, end 4.5s
+- **Delete shots** — swipe left on any shot (recent or history) to delete
+
 ## Key Dependencies
 
 - `play-services-location` — GPS via FusedLocationProviderClient
@@ -76,4 +86,4 @@ export JAVA_HOME="F:/android-studio/jbr"
 ## GitHub
 
 - **Repo**: https://github.com/bailz66/HowFarDidIHitIt
-- **CLI auth**: `gh` is installed and authenticated with workflow scope
+- **CLI auth**: `gh` is installed at `/c/Users/User/gh/bin/gh.exe` and authenticated with workflow scope

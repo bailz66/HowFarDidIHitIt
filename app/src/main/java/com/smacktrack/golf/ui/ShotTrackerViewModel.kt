@@ -15,6 +15,7 @@ package com.smacktrack.golf.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.smacktrack.golf.data.ShotRepository
 import com.smacktrack.golf.domain.Club
 import com.smacktrack.golf.domain.GpsCoordinate
 import com.smacktrack.golf.location.GpsSample
@@ -77,7 +78,8 @@ data class ShotResult(
     val windSpeedKmh: Double,
     val windDirectionCompass: String,
     val windDirectionDegrees: Int = 0,
-    val shotBearingDegrees: Double = 0.0
+    val shotBearingDegrees: Double = 0.0,
+    val timestampMs: Long = System.currentTimeMillis()
 )
 
 data class AppSettings(
@@ -102,10 +104,18 @@ data class ShotTrackerUiState(
 
 class ShotTrackerViewModel(application: Application) : AndroidViewModel(application) {
 
+    private val repository = ShotRepository(application)
+
     private val _uiState = MutableStateFlow(ShotTrackerUiState())
     val uiState: StateFlow<ShotTrackerUiState> = _uiState.asStateFlow()
 
     private val locationProvider = LocationProvider(application)
+
+    init {
+        val savedShots = repository.loadShots()
+        val savedSettings = repository.loadSettings()
+        _uiState.update { it.copy(shotHistory = savedShots, settings = savedSettings) }
+    }
 
     // Current GPS position — updated by location flow from FusedLocationProviderClient.
     // Defaults are a fallback if GPS is unavailable.
@@ -115,10 +125,13 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
 
     private var locationJob: Job? = null
 
-    // Calibration: 2.5s window, 500ms intervals = 5 samples (6 with first discarded)
+    // Calibration: start = 3.5s (7 samples), end = 2s (4 samples) at 500ms intervals
+    // End calibration is shorter because GPS has been streaming during the walk.
     private companion object {
-        const val CALIBRATION_DURATION_MS = 2500L
+        const val CALIBRATION_DURATION_MS = 3500L
+        const val END_CALIBRATION_DURATION_MS = 2000L
         const val CALIBRATION_INTERVAL_MS = 500L
+        const val GPS_WARMUP_TIMEOUT_MS = 5000L
     }
 
     fun onPermissionResult(granted: Boolean) {
@@ -143,17 +156,31 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
         locationJob = null
     }
 
+    private fun clearGpsState() {
+        currentLat = 0.0
+        currentLon = 0.0
+        currentAccuracy = 100.0
+    }
+
+    /** Waits until the location flow delivers a fresh fix (non-zero lat/lon). */
+    private suspend fun waitForFreshGps() {
+        val deadline = System.currentTimeMillis() + GPS_WARMUP_TIMEOUT_MS
+        while (currentLat == 0.0 && currentLon == 0.0 && System.currentTimeMillis() < deadline) {
+            delay(CALIBRATION_INTERVAL_MS)
+        }
+    }
+
     fun selectClub(club: Club) {
         _uiState.update { it.copy(selectedClub = club) }
     }
 
     /**
-     * Collects GPS samples over [CALIBRATION_DURATION_MS] at [CALIBRATION_INTERVAL_MS] intervals.
+     * Collects GPS samples over [durationMs] at [CALIBRATION_INTERVAL_MS] intervals.
      * Returns the collected samples for use with [calibrateWeighted].
      */
-    private suspend fun collectGpsSamples(): List<GpsSample> {
+    private suspend fun collectGpsSamples(durationMs: Long = CALIBRATION_DURATION_MS): List<GpsSample> {
         val samples = mutableListOf<GpsSample>()
-        val endTime = System.currentTimeMillis() + CALIBRATION_DURATION_MS
+        val endTime = System.currentTimeMillis() + durationMs
 
         while (System.currentTimeMillis() < endTime) {
             samples.add(
@@ -170,12 +197,17 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun markStart() {
-        _uiState.value.selectedClub ?: return
+        // Default to Driver if no club selected yet
+        if (_uiState.value.selectedClub == null) {
+            _uiState.update { it.copy(selectedClub = Club.DRIVER) }
+        }
         _uiState.update { it.copy(phase = ShotPhase.CALIBRATING_START) }
 
         startLocationUpdates()
 
         viewModelScope.launch {
+            // Wait for fresh GPS fix before calibrating (stale coords were cleared on reset)
+            waitForFreshGps()
             val samples = collectGpsSamples()
             val calibrated = calibrateWeighted(samples)
 
@@ -221,7 +253,7 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
 
         viewModelScope.launch {
             // Run GPS calibration and weather fetch in parallel
-            val samplesDeferred = async { collectGpsSamples() }
+            val samplesDeferred = async { collectGpsSamples(END_CALIBRATION_DURATION_MS) }
             val weatherDeferred = async {
                 if (currentLat != 0.0 || currentLon != 0.0) {
                     WeatherService.fetchWeather(currentLat, currentLon)
@@ -269,11 +301,13 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
                     shotHistory = it.shotHistory + result
                 )
             }
+            persistShots()
         }
     }
 
     fun nextShot() {
         stopLocationUpdates()
+        clearGpsState()
         _uiState.update {
             it.copy(
                 phase = ShotPhase.CLUB_SELECT,
@@ -296,18 +330,22 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
 
     fun updateDistanceUnit(unit: DistanceUnit) {
         _uiState.update { it.copy(settings = it.settings.copy(distanceUnit = unit)) }
+        persistSettings()
     }
 
     fun updateWindUnit(unit: WindUnit) {
         _uiState.update { it.copy(settings = it.settings.copy(windUnit = unit)) }
+        persistSettings()
     }
 
     fun updateTemperatureUnit(unit: TemperatureUnit) {
         _uiState.update { it.copy(settings = it.settings.copy(temperatureUnit = unit)) }
+        persistSettings()
     }
 
     fun updateTrajectory(trajectory: Trajectory) {
         _uiState.update { it.copy(settings = it.settings.copy(trajectory = trajectory)) }
+        persistSettings()
     }
 
     fun toggleClub(club: Club) {
@@ -316,9 +354,17 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
             val updated = if (club in current) current - club else current + club
             it.copy(settings = it.settings.copy(enabledClubs = updated))
         }
+        persistSettings()
     }
 
     // ── Wind overrides ────────────────────────────────────────────────────────
+
+    fun deleteShot(index: Int) {
+        _uiState.update {
+            it.copy(shotHistory = it.shotHistory.filterIndexed { i, _ -> i != index })
+        }
+        persistShots()
+    }
 
     fun adjustWindDirection(deltaDegrees: Int) {
         _uiState.update { state ->
@@ -332,6 +378,7 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
             if (history.isNotEmpty()) history[history.lastIndex] = updated
             state.copy(shotResult = updated, shotHistory = history)
         }
+        persistShots()
     }
 
     fun adjustWindSpeed(deltaKmh: Double) {
@@ -344,5 +391,16 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
             if (history.isNotEmpty()) history[history.lastIndex] = updated
             state.copy(shotResult = updated, shotHistory = history)
         }
+        persistShots()
+    }
+
+    // ── Persistence helpers ──────────────────────────────────────────────────
+
+    private fun persistShots() {
+        repository.saveShots(_uiState.value.shotHistory)
+    }
+
+    private fun persistSettings() {
+        repository.saveSettings(_uiState.value.settings)
     }
 }

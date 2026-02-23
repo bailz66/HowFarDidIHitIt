@@ -85,6 +85,8 @@ import com.smacktrack.golf.ui.theme.windCategoryColor
 
 private val cardBorderColor = Color(0xFFE0E2DC)
 
+private enum class StatsView { CLUBS, DISTANCES }
+
 private val categoryOrder = Club.Category.entries
 
 enum class TimePeriod(val label: String, val days: Int) {
@@ -117,6 +119,7 @@ fun AnalyticsScreen(
     var selectedPeriod by remember { mutableStateOf(TimePeriod.ALL) }
     var windAdjusted by remember { mutableStateOf(false) }
     var selectedClub by remember { mutableStateOf<Club?>(null) }
+    var viewMode by remember { mutableStateOf(StatsView.CLUBS) }
 
     if (shotHistory.isEmpty()) {
         Column(
@@ -150,41 +153,96 @@ fun AnalyticsScreen(
         shotHistory.filter { it.timestampMs >= cutoffMs }
     }
 
-    AnimatedContent(
-        targetState = selectedClub,
-        transitionSpec = {
-            if (targetState != null) {
-                (fadeIn() + slideInHorizontally { it / 4 }) togetherWith
-                        (fadeOut() + slideOutHorizontally { -it / 4 })
-            } else {
-                (fadeIn() + slideInHorizontally { -it / 4 }) togetherWith
-                        (fadeOut() + slideOutHorizontally { it / 4 })
+    Column(modifier = modifier.fillMaxSize()) {
+        // Segmented toggle — only visible when not in club detail
+        if (selectedClub == null) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.Center
+            ) {
+                StatsView.entries.forEach { mode ->
+                    val selected = mode == viewMode
+                    val label = when (mode) {
+                        StatsView.CLUBS -> "Clubs"
+                        StatsView.DISTANCES -> "Distances"
+                    }
+                    Box(
+                        modifier = Modifier
+                            .clip(
+                                when (mode) {
+                                    StatsView.CLUBS -> RoundedCornerShape(
+                                        topStart = 10.dp, bottomStart = 10.dp,
+                                        topEnd = 0.dp, bottomEnd = 0.dp
+                                    )
+                                    StatsView.DISTANCES -> RoundedCornerShape(
+                                        topStart = 0.dp, bottomStart = 0.dp,
+                                        topEnd = 10.dp, bottomEnd = 10.dp
+                                    )
+                                }
+                            )
+                            .background(if (selected) DarkGreen else ChipUnselectedBg)
+                            .clickable { viewMode = mode }
+                            .padding(horizontal = 24.dp, vertical = 10.dp)
+                    ) {
+                        Text(
+                            text = label,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (selected) Color.White else TextSecondary
+                        )
+                    }
+                }
             }
-        },
-        modifier = modifier.fillMaxSize(),
-        label = "analytics"
-    ) { club ->
-        if (club != null) {
-            ClubDetailView(
-                club = club,
-                shots = filtered.filter { it.club == club },
-                allShots = shotHistory,
-                settings = settings,
-                windAdjusted = windAdjusted,
-                onWindAdjustedChanged = { windAdjusted = it },
-                onDeleteShot = onDeleteShot,
-                onBack = { selectedClub = null }
-            )
-        } else {
-            StatsListView(
-                shots = filtered,
-                settings = settings,
-                selectedPeriod = selectedPeriod,
-                onPeriodChanged = { selectedPeriod = it },
-                windAdjusted = windAdjusted,
-                onWindAdjustedChanged = { windAdjusted = it },
-                onClubClicked = { selectedClub = it }
-            )
+        }
+
+        AnimatedContent(
+            targetState = selectedClub,
+            transitionSpec = {
+                if (targetState != null) {
+                    (fadeIn() + slideInHorizontally { it / 4 }) togetherWith
+                            (fadeOut() + slideOutHorizontally { -it / 4 })
+                } else {
+                    (fadeIn() + slideInHorizontally { -it / 4 }) togetherWith
+                            (fadeOut() + slideOutHorizontally { it / 4 })
+                }
+            },
+            modifier = Modifier.fillMaxSize(),
+            label = "analytics"
+        ) { club ->
+            if (club != null) {
+                ClubDetailView(
+                    club = club,
+                    shots = filtered.filter { it.club == club },
+                    allShots = shotHistory,
+                    settings = settings,
+                    windAdjusted = windAdjusted,
+                    onWindAdjustedChanged = { windAdjusted = it },
+                    onDeleteShot = onDeleteShot,
+                    onBack = { selectedClub = null }
+                )
+            } else {
+                when (viewMode) {
+                    StatsView.CLUBS -> StatsListView(
+                        shots = filtered,
+                        settings = settings,
+                        selectedPeriod = selectedPeriod,
+                        onPeriodChanged = { selectedPeriod = it },
+                        windAdjusted = windAdjusted,
+                        onWindAdjustedChanged = { windAdjusted = it },
+                        onClubClicked = { selectedClub = it }
+                    )
+                    StatsView.DISTANCES -> DistanceChartView(
+                        shots = filtered,
+                        settings = settings,
+                        selectedPeriod = selectedPeriod,
+                        onPeriodChanged = { selectedPeriod = it },
+                        windAdjusted = windAdjusted,
+                        onWindAdjustedChanged = { windAdjusted = it }
+                    )
+                }
+            }
         }
     }
 }
