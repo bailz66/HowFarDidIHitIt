@@ -29,10 +29,16 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -69,8 +75,43 @@ fun SettingsScreen(
     onTemperatureUnitChanged: (TemperatureUnit) -> Unit,
     onTrajectoryChanged: (Trajectory) -> Unit,
     onClubToggled: (Club) -> Unit,
+    isSignedIn: Boolean = false,
+    userEmail: String? = null,
+    onSignIn: () -> Unit = {},
+    onSignOut: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    var showHowItWorks by remember { mutableStateOf(false) }
+
+    if (showHowItWorks) {
+        AlertDialog(
+            onDismissRequest = { showHowItWorks = false },
+            title = {
+                Text(
+                    "How SmackTrack Works",
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text(
+                    "1. Tap Smack where you hit the ball\n\n" +
+                    "2. Walk to where it landed and tap Track\n\n" +
+                    "3. GPS locks both spots and calculates the distance\n\n" +
+                    "4. Weather and wind data adjust your carry estimate\n\n" +
+                    "5. Tap Share to send your shot card\n\n" +
+                    "Accuracy depends on GPS signal. " +
+                    "Open sky gives the best results — trees, buildings, and " +
+                    "heavy cloud cover can reduce accuracy by a few yards."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { showHowItWorks = false }) {
+                    Text("Got it", color = DarkGreen)
+                }
+            }
+        )
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -172,6 +213,93 @@ fun SettingsScreen(
                         )
                     }
                 }
+            }
+        }
+
+        Spacer(Modifier.height(28.dp))
+        HorizontalDivider(color = Color(0xFFE0E2DC))
+        Spacer(Modifier.height(28.dp))
+
+        // ── How It Works ────────────────────────────────────
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .background(ChipUnselectedBg)
+                .clickable { showHowItWorks = true }
+                .padding(vertical = 16.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "How SmackTrack Works",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = DarkGreen
+            )
+        }
+
+        Spacer(Modifier.height(28.dp))
+        HorizontalDivider(color = Color(0xFFE0E2DC))
+        Spacer(Modifier.height(28.dp))
+
+        // ── Account / Cloud Sync ─────────────────────────
+        SectionHeader("CLOUD SYNC")
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = "Sign in to sync shots across devices",
+            style = MaterialTheme.typography.bodySmall,
+            color = TextTertiary
+        )
+        Spacer(Modifier.height(16.dp))
+
+        if (isSignedIn) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(ChipUnselectedBg)
+                    .padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = userEmail ?: "Signed in",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextSecondary
+                )
+                Spacer(Modifier.height(12.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFFE8E8E8))
+                        .clickable { onSignOut() }
+                        .padding(vertical = 14.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "Sign Out",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextSecondary
+                    )
+                }
+            }
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xFF4285F4))
+                    .clickable { onSignIn() }
+                    .padding(vertical = 16.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Sign in with Google",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White
+                )
             }
         }
 

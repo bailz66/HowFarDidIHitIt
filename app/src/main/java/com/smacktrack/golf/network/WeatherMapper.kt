@@ -58,8 +58,7 @@ fun wmoCodeToLabel(code: Int): String = when (code) {
  * @return One of: N, NE, E, SE, S, SW, W, NW
  */
 fun degreesToCompass(degrees: Int): String {
-    require(degrees in 0..360) { "Degrees must be 0-360, got $degrees" }
-    val normalized = degrees % 360
+    val normalized = ((degrees % 360) + 360) % 360
     return when {
         normalized < 23  -> "N"
         normalized < 68  -> "NE"

@@ -78,9 +78,29 @@ export JAVA_HOME="F:/android-studio/jbr"
 - **GPS calibration** — accuracy-weighted multi-sample calibration; fresh GPS warmup on each new shot; start 3.5s, end 4.5s
 - **Delete shots** — swipe left on any shot (recent or history) to delete
 
+## Firebase / Firestore
+
+- **Project**: `smashtrack-a2c99` (Firebase Console)
+- **Plan**: Spark (free tier) — no billing required
+- **Firestore**: test mode (rules expire after 30 days — add security rules before publishing)
+- **Auth**: Google Sign-in via Credential Manager API
+- **`app/google-services.json`**: downloaded from Firebase Console — do NOT commit to public repos
+
+### SHA-1 Fingerprints (registered in Firebase Console → Project settings → Your apps)
+
+- **Debug**: `F5:20:03:5C:D2:FF:F7:A7:92:CB:06:C9:C6:69:B4:A6:BB:03:F6:C4` (from `~/.android/debug.keystore`, valid until 2056)
+- **Release**: TODO — add release keystore SHA-1 before publishing to Play Store
+
+To get a SHA-1:
+```bash
+"F:/android-studio/jbr/bin/keytool" -list -v -keystore /c/Users/User/.android/debug.keystore -alias androiddebugkey -storepass android
+```
+
 ## Key Dependencies
 
 - `play-services-location` — GPS via FusedLocationProviderClient
+- `firebase-firestore-ktx` / `firebase-auth-ktx` — Firestore + Firebase Auth (via BOM 33.7.0)
+- `credentials-play-services-auth` / `googleid` — Credential Manager Google Sign-in
 - `org.json:json` — test-only dependency for WeatherService JSON parsing tests
 
 ## GitHub

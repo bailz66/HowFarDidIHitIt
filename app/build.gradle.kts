@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.android.junit5)
+    alias(libs.plugins.google.services)
 }
 
 android {
@@ -54,6 +55,7 @@ android {
         compose = true
     }
     testOptions {
+        unitTests.isReturnDefaultValues = true
         unitTests.all {
             it.useJUnitPlatform()
         }
@@ -78,6 +80,12 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
     implementation(libs.play.services.location)
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.firestore)
+    implementation(libs.firebase.auth)
+    implementation(libs.credentials)
+    implementation(libs.credentials.play.services)
+    implementation(libs.googleid)
 
     testImplementation(libs.junit5.api)
     testImplementation(libs.junit5.params)

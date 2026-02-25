@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import com.smacktrack.golf.data.AuthManager
 import com.smacktrack.golf.ui.ShotTrackerViewModel
 import com.smacktrack.golf.ui.screen.AnalyticsScreen
 import com.smacktrack.golf.ui.screen.HistoryScreen
@@ -70,9 +71,12 @@ import com.smacktrack.golf.ui.theme.TextTertiary
 
 class MainActivity : ComponentActivity() {
     private val viewModel by viewModels<ShotTrackerViewModel>()
+    private lateinit var authManager: AuthManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        authManager = AuthManager(this)
+        viewModel.authManager = authManager
         enableEdgeToEdge()
         setContent {
             SmackTrackTheme {
@@ -205,6 +209,12 @@ fun SmackTrackApp(viewModel: ShotTrackerViewModel) {
         }
     ) { innerPadding ->
         if (showSettings) {
+            // The web client ID is auto-generated from google-services.json
+            val webClientId = context.getString(
+                context.resources.getIdentifier(
+                    "default_web_client_id", "string", context.packageName
+                )
+            )
             SettingsScreen(
                 settings = uiState.settings,
                 onDistanceUnitChanged = viewModel::updateDistanceUnit,
@@ -212,6 +222,10 @@ fun SmackTrackApp(viewModel: ShotTrackerViewModel) {
                 onTemperatureUnitChanged = viewModel::updateTemperatureUnit,
                 onTrajectoryChanged = viewModel::updateTrajectory,
                 onClubToggled = viewModel::toggleClub,
+                isSignedIn = uiState.isSignedIn,
+                userEmail = uiState.userEmail,
+                onSignIn = { viewModel.signInWithGoogle(webClientId) },
+                onSignOut = { viewModel.signOut() },
                 modifier = Modifier.padding(innerPadding)
             )
         } else {

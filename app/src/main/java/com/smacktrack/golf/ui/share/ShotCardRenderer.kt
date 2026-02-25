@@ -3,9 +3,11 @@ package com.smacktrack.golf.ui.share
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
+import android.graphics.Shader
 import android.graphics.Typeface
 import androidx.core.content.res.ResourcesCompat
 import com.smacktrack.golf.R
@@ -15,6 +17,9 @@ import com.smacktrack.golf.ui.DistanceUnit
 import com.smacktrack.golf.ui.ShotResult
 import com.smacktrack.golf.ui.TemperatureUnit
 import com.smacktrack.golf.ui.WindUnit
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 object ShotCardRenderer {
 
@@ -32,6 +37,11 @@ object ShotCardRenderer {
     private const val GOLD_BG = 0x1FFFAB00
     private const val GREEN_BG = 0x1A1B5E20
 
+    // Gradient stops
+    private const val GRADIENT_TOP = 0xFF0D3B12.toInt()
+    private const val GRADIENT_MID = 0xFF1B5E20.toInt()
+    private const val GRADIENT_BOTTOM = 0xFF245C2B.toInt()
+
     fun render(
         context: Context,
         result: ShotResult,
@@ -46,8 +56,16 @@ object ShotCardRenderer {
         val poppinsMedium = ResourcesCompat.getFont(context, R.font.poppins_medium) ?: Typeface.DEFAULT
         val robotoBold = ResourcesCompat.getFont(context, R.font.roboto_bold) ?: Typeface.DEFAULT_BOLD
 
-        // 1. Green background
-        canvas.drawColor(DARK_GREEN)
+        // 1. Gradient background
+        val bgPaint = Paint().apply {
+            shader = LinearGradient(
+                0f, 0f, 0f, SIZE.toFloat(),
+                intArrayOf(GRADIENT_TOP, GRADIENT_MID, GRADIENT_BOTTOM),
+                floatArrayOf(0f, 0.5f, 1f),
+                Shader.TileMode.CLAMP
+            )
+        }
+        canvas.drawRect(0f, 0f, SIZE.toFloat(), SIZE.toFloat(), bgPaint)
 
         // 2. White card
         val cardPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = WHITE }
@@ -271,19 +289,27 @@ object ShotCardRenderer {
             adjustedPaint.textAlign = Paint.Align.LEFT
             canvas.drawText(baseText, startX, y + 28f, adjustedPaint)
             canvas.drawText(diffText, startX + baseWidth, y + 28f, diffPaint)
-
-            y += 50f
         }
 
-        // 10. Branding footer
-        y = 970f
+        // 10. Date/time stamp
+        val dateFormat = SimpleDateFormat("MMM d, yyyy \u00B7 h:mm a", Locale.getDefault())
+        val dateText = dateFormat.format(Date(result.timestampMs))
+        val datePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            typeface = poppinsMedium
+            textSize = 26f
+            color = TEXT_SECONDARY
+            textAlign = Paint.Align.CENTER
+        }
+        canvas.drawText(dateText, CENTER_X, 924f, datePaint)
+
+        // 11. Branding footer
         val brandPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             typeface = poppinsBold
             textSize = 32f
             color = DARK_GREEN
             textAlign = Paint.Align.CENTER
         }
-        canvas.drawText("SmackTrack", CENTER_X, y, brandPaint)
+        canvas.drawText("SmackTrack", CENTER_X, 970f, brandPaint)
 
         return bitmap
     }

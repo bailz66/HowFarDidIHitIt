@@ -48,12 +48,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.smacktrack.golf.ui.AppSettings
 import com.smacktrack.golf.ui.DistanceUnit
 import com.smacktrack.golf.ui.ShotResult
 import com.smacktrack.golf.ui.TemperatureUnit
 import com.smacktrack.golf.ui.WindUnit
+import com.smacktrack.golf.ui.share.ShareUtil
+import com.smacktrack.golf.ui.share.ShotCardRenderer
 import com.smacktrack.golf.ui.theme.DarkGreen
 import com.smacktrack.golf.ui.theme.LightGreenTint
 import com.smacktrack.golf.ui.theme.TextTertiary
@@ -65,6 +68,7 @@ fun HistoryScreen(
     onDeleteShot: (Int) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     var pendingDeleteIndex by remember { mutableStateOf<Int?>(null) }
 
     pendingDeleteIndex?.let { index ->
@@ -149,11 +153,20 @@ fun HistoryScreen(
 
             val shotsReversed = session.shots.reversed()
             items(shotsReversed) { shot ->
-                val actualIndex = shotHistory.indexOf(shot)
+                val actualIndex = shotHistory.indexOfFirst { it.timestampMs == shot.timestampMs }
                 ShotHistoryCard(
                     shot = shot,
                     settings = settings,
-                    onDelete = if (actualIndex >= 0) {{ pendingDeleteIndex = actualIndex }} else {{}}
+                    onDelete = if (actualIndex >= 0) {{ pendingDeleteIndex = actualIndex }} else {{}},
+                    onShare = {
+                        val bitmap = ShotCardRenderer.render(
+                            context = context,
+                            result = shot,
+                            settings = settings,
+                            shotHistory = shotHistory
+                        )
+                        ShareUtil.shareShotCard(context, bitmap)
+                    }
                 )
             }
         }
@@ -171,7 +184,7 @@ fun HistoryScreen(
 }
 
 @Composable
-private fun ShotHistoryCard(shot: ShotResult, settings: AppSettings, onDelete: () -> Unit = {}) {
+private fun ShotHistoryCard(shot: ShotResult, settings: AppSettings, onDelete: () -> Unit = {}, onShare: () -> Unit = {}) {
     val distance = if (settings.distanceUnit == DistanceUnit.YARDS) shot.distanceYards else shot.distanceMeters
     val distLabel = if (settings.distanceUnit == DistanceUnit.YARDS) "yds" else "m"
     val windSpeed = if (settings.windUnit == WindUnit.KMH) {
@@ -181,6 +194,7 @@ private fun ShotHistoryCard(shot: ShotResult, settings: AppSettings, onDelete: (
     }
 
     Card(
+        onClick = onShare,
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),

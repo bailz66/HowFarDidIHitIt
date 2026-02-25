@@ -3,7 +3,6 @@ package com.smacktrack.golf.network
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
 import org.junit.jupiter.params.provider.ValueSource
@@ -63,10 +62,15 @@ class WeatherBoundaryTest {
         assertEquals(expectedDirection, degreesToCompass(degrees))
     }
 
-    @ParameterizedTest(name = "Invalid degrees: {0}")
-    @ValueSource(ints = [-1, -180, 361, 1000])
-    fun `invalid degrees throws IllegalArgumentException`(degrees: Int) {
-        assertThrows<IllegalArgumentException> { degreesToCompass(degrees) }
+    @ParameterizedTest(name = "Out-of-range degrees normalized: {0} = {1}")
+    @CsvSource(
+        "-1,   N",
+        "-180, S",
+        "361,  N",
+        "1000, W"
+    )
+    fun `out-of-range degrees are normalized`(degrees: Int, expectedDirection: String) {
+        assertEquals(expectedDirection, degreesToCompass(degrees))
     }
 
     // --- WMO code mapping ---

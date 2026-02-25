@@ -1,5 +1,6 @@
 package com.smacktrack.golf.network
 
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -28,16 +29,19 @@ object WeatherService {
      */
     suspend fun fetchWeather(lat: Double, lon: Double): WeatherData? =
         withContext(Dispatchers.IO) {
+            val url = "$BASE_URL?latitude=$lat&longitude=$lon" +
+                "&current=temperature_2m,weather_code,wind_speed_10m,wind_direction_10m"
+            val connection = URL(url).openConnection() as HttpURLConnection
             try {
-                val url = "$BASE_URL?latitude=$lat&longitude=$lon" +
-                    "&current=temperature_2m,weather_code,wind_speed_10m,wind_direction_10m"
-                val connection = URL(url).openConnection() as HttpURLConnection
                 connection.connectTimeout = CONNECT_TIMEOUT_MS
                 connection.readTimeout = READ_TIMEOUT_MS
                 val json = connection.inputStream.bufferedReader().use { it.readText() }
                 parseWeatherJson(json)
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                Log.e("WeatherService", "Failed to fetch weather", e)
                 null
+            } finally {
+                connection.disconnect()
             }
         }
 
@@ -57,7 +61,8 @@ object WeatherService {
                 windSpeedKmh = current.getDouble("wind_speed_10m"),
                 windDirectionDegrees = current.getInt("wind_direction_10m")
             )
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e("WeatherService", "Failed to parse weather JSON", e)
             null
         }
 }

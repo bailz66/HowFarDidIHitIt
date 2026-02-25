@@ -15,6 +15,7 @@ package com.smacktrack.golf.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.smacktrack.golf.data.AuthManager
 import com.smacktrack.golf.data.ShotRepository
 import com.smacktrack.golf.domain.Club
 import com.smacktrack.golf.domain.GpsCoordinate
@@ -35,6 +36,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -99,17 +101,27 @@ data class ShotTrackerUiState(
     val shotResult: ShotResult? = null,
     val shotHistory: List<ShotResult> = emptyList(),
     val settings: AppSettings = AppSettings(),
-    val locationPermissionGranted: Boolean = false
+    val locationPermissionGranted: Boolean = false,
+    val userEmail: String? = null,
+    val isSignedIn: Boolean = false
 )
 
 class ShotTrackerViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = ShotRepository(application)
+    var authManager: AuthManager? = null
+        set(value) {
+            field = value
+            if (value != null) observeAuthState()
+        }
 
     private val _uiState = MutableStateFlow(ShotTrackerUiState())
     val uiState: StateFlow<ShotTrackerUiState> = _uiState.asStateFlow()
 
     private val locationProvider = LocationProvider(application)
+
+    private var shotsCollectionJob: Job? = null
+    private var settingsCollectionJob: Job? = null
 
     init {
         val savedShots = repository.loadShots()
@@ -117,11 +129,49 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
         _uiState.update { it.copy(shotHistory = savedShots, settings = savedSettings) }
     }
 
+    private fun observeAuthState() {
+        val auth = authManager ?: return
+        viewModelScope.launch {
+            auth.currentUser.collectLatest { user ->
+                _uiState.update {
+                    it.copy(
+                        isSignedIn = user != null,
+                        userEmail = user?.email
+                    )
+                }
+                if (user != null) {
+                    // Migrate local data on first sign-in
+                    try { repository.migrateLocalToFirestore() } catch (e: Exception) {
+                        android.util.Log.e("ViewModel", "Migration failed", e)
+                    }
+                }
+                // Re-subscribe to the correct data source
+                subscribeToData()
+            }
+        }
+    }
+
+    private fun subscribeToData() {
+        shotsCollectionJob?.cancel()
+        settingsCollectionJob?.cancel()
+
+        shotsCollectionJob = viewModelScope.launch {
+            repository.shotsFlow().collectLatest { shots ->
+                _uiState.update { it.copy(shotHistory = shots) }
+            }
+        }
+
+        settingsCollectionJob = viewModelScope.launch {
+            repository.settingsFlow().collectLatest { settings ->
+                _uiState.update { it.copy(settings = settings) }
+            }
+        }
+    }
+
     // Current GPS position — updated by location flow from FusedLocationProviderClient.
-    // Defaults are a fallback if GPS is unavailable.
-    private var currentLat = 0.0
-    private var currentLon = 0.0
-    private var currentAccuracy = 100.0
+    // Wrapped in a data class so reads/writes are atomic (single reference swap).
+    private data class GpsState(val lat: Double = 0.0, val lon: Double = 0.0, val accuracy: Double = 100.0)
+    @Volatile private var gpsState = GpsState()
 
     private var locationJob: Job? = null
 
@@ -144,9 +194,7 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
 
         locationJob = viewModelScope.launch {
             locationProvider.locationUpdates(CALIBRATION_INTERVAL_MS).collect { update ->
-                currentLat = update.lat
-                currentLon = update.lon
-                currentAccuracy = update.accuracyMeters.toDouble()
+                gpsState = GpsState(update.lat, update.lon, update.accuracyMeters.toDouble())
             }
         }
     }
@@ -157,15 +205,13 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     private fun clearGpsState() {
-        currentLat = 0.0
-        currentLon = 0.0
-        currentAccuracy = 100.0
+        gpsState = GpsState()
     }
 
     /** Waits until the location flow delivers a fresh fix (non-zero lat/lon). */
     private suspend fun waitForFreshGps() {
         val deadline = System.currentTimeMillis() + GPS_WARMUP_TIMEOUT_MS
-        while (currentLat == 0.0 && currentLon == 0.0 && System.currentTimeMillis() < deadline) {
+        while (gpsState.lat == 0.0 && gpsState.lon == 0.0 && System.currentTimeMillis() < deadline) {
             delay(CALIBRATION_INTERVAL_MS)
         }
     }
@@ -183,11 +229,12 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
         val endTime = System.currentTimeMillis() + durationMs
 
         while (System.currentTimeMillis() < endTime) {
+            val snap = gpsState
             samples.add(
                 GpsSample(
-                    lat = currentLat,
-                    lon = currentLon,
-                    accuracyMeters = currentAccuracy
+                    lat = snap.lat,
+                    lon = snap.lon,
+                    accuracyMeters = snap.accuracy
                 )
             )
             delay(CALIBRATION_INTERVAL_MS)
@@ -212,7 +259,7 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
             val calibrated = calibrateWeighted(samples)
 
             val startCoord = calibrated?.coordinate
-                ?: GpsCoordinate(currentLat, currentLon)
+                ?: GpsCoordinate(gpsState.lat, gpsState.lon)
 
             _uiState.update {
                 it.copy(
@@ -231,7 +278,7 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
         while (_uiState.value.phase == ShotPhase.WALKING) {
             delay(1000)
 
-            val currentPos = GpsCoordinate(currentLat, currentLon)
+            val currentPos = GpsCoordinate(gpsState.lat, gpsState.lon)
             val distanceMeters = haversineMeters(startCoord, currentPos)
             val distanceYards = metersToYards(distanceMeters)
 
@@ -254,9 +301,10 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch {
             // Run GPS calibration and weather fetch in parallel
             val samplesDeferred = async { collectGpsSamples(END_CALIBRATION_DURATION_MS) }
+            val weatherSnap = gpsState
             val weatherDeferred = async {
-                if (currentLat != 0.0 || currentLon != 0.0) {
-                    WeatherService.fetchWeather(currentLat, currentLon)
+                if (weatherSnap.lat != 0.0 || weatherSnap.lon != 0.0) {
+                    WeatherService.fetchWeather(weatherSnap.lat, weatherSnap.lon)
                 } else null
             }
 
@@ -264,7 +312,7 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
             val calibrated = calibrateWeighted(samples)
 
             val endCoord = calibrated?.coordinate
-                ?: GpsCoordinate(currentLat, currentLon)
+                ?: GpsCoordinate(gpsState.lat, gpsState.lon)
 
             val distanceMeters = haversineMeters(startCoord, endCoord)
             val distanceYards = metersToYards(distanceMeters)
@@ -294,6 +342,11 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
                 shotBearingDegrees = shotBearing
             )
 
+            // Save to the correct backend
+            try { repository.saveShot(result) } catch (e: Exception) {
+                android.util.Log.e("ViewModel", "Failed to save shot", e)
+            }
+
             _uiState.update {
                 it.copy(
                     phase = ShotPhase.RESULT,
@@ -301,6 +354,7 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
                     shotHistory = it.shotHistory + result
                 )
             }
+            // Also persist to SharedPrefs as local backup
             persistShots()
         }
     }
@@ -360,8 +414,14 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
     // ── Wind overrides ────────────────────────────────────────────────────────
 
     fun deleteShot(index: Int) {
+        val shot = _uiState.value.shotHistory.getOrNull(index) ?: return
         _uiState.update {
             it.copy(shotHistory = it.shotHistory.filterIndexed { i, _ -> i != index })
+        }
+        viewModelScope.launch {
+            try { repository.deleteShot(shot.timestampMs) } catch (e: Exception) {
+                android.util.Log.e("ViewModel", "Failed to delete shot", e)
+            }
         }
         persistShots()
     }
@@ -379,6 +439,13 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
             state.copy(shotResult = updated, shotHistory = history)
         }
         persistShots()
+        // Also update in Firestore if signed in
+        val result = _uiState.value.shotResult
+        if (result != null) {
+            viewModelScope.launch {
+                try { repository.updateShot(result) } catch (_: Exception) {}
+            }
+        }
     }
 
     fun adjustWindSpeed(deltaKmh: Double) {
@@ -392,6 +459,32 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
             state.copy(shotResult = updated, shotHistory = history)
         }
         persistShots()
+        val result = _uiState.value.shotResult
+        if (result != null) {
+            viewModelScope.launch {
+                try { repository.updateShot(result) } catch (_: Exception) {}
+            }
+        }
+    }
+
+    // ── Auth actions (called from UI) ────────────────────────────────────────
+
+    fun signInWithGoogle(webClientId: String) {
+        val auth = authManager ?: return
+        viewModelScope.launch {
+            auth.signInWithGoogle(webClientId)
+        }
+    }
+
+    fun signOut() {
+        val auth = authManager ?: return
+        viewModelScope.launch {
+            auth.signOut()
+            // Reload local data after sign-out
+            val localShots = repository.loadShots()
+            val localSettings = repository.loadSettings()
+            _uiState.update { it.copy(shotHistory = localShots, settings = localSettings) }
+        }
     }
 
     // ── Persistence helpers ──────────────────────────────────────────────────
@@ -402,5 +495,13 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
 
     private fun persistSettings() {
         repository.saveSettings(_uiState.value.settings)
+        // Also save to Firestore if signed in
+        if (_uiState.value.isSignedIn) {
+            viewModelScope.launch {
+                try {
+                    repository.saveSettingsToFirestore(_uiState.value.settings)
+                } catch (_: Exception) {}
+            }
+        }
     }
 }
