@@ -1,5 +1,6 @@
 package com.smacktrack.golf.data
 
+import android.app.Activity
 import android.content.Context
 import android.util.Log
 import androidx.credentials.ClearCredentialStateRequest
@@ -16,34 +17,49 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.tasks.await
 
-class AuthManager(private val context: Context) {
+class AuthManager(private val activity: Activity) {
 
     private val firebaseAuth = FirebaseAuth.getInstance()
-    private val credentialManager = CredentialManager.create(context)
+    private val credentialManager = CredentialManager.create(activity)
 
     private val _currentUser = MutableStateFlow(firebaseAuth.currentUser)
     val currentUser: StateFlow<FirebaseUser?> = _currentUser.asStateFlow()
 
+    private val _signInError = MutableStateFlow<String?>(null)
+    val signInError: StateFlow<String?> = _signInError.asStateFlow()
+
     val isSignedIn: Boolean get() = firebaseAuth.currentUser != null
 
+    private val authStateListener = FirebaseAuth.AuthStateListener { auth ->
+        _currentUser.value = auth.currentUser
+    }
+
     init {
-        firebaseAuth.addAuthStateListener { auth ->
-            _currentUser.value = auth.currentUser
-        }
+        firebaseAuth.addAuthStateListener(authStateListener)
+    }
+
+    fun cleanup() {
+        firebaseAuth.removeAuthStateListener(authStateListener)
+    }
+
+    fun clearError() {
+        _signInError.value = null
     }
 
     suspend fun signInWithGoogle(webClientId: String): Result<FirebaseUser> {
+        _signInError.value = null
         return try {
             val googleIdOption = GetGoogleIdOption.Builder()
                 .setFilterByAuthorizedAccounts(false)
                 .setServerClientId(webClientId)
+                .setAutoSelectEnabled(false)
                 .build()
 
             val request = GetCredentialRequest.Builder()
                 .addCredentialOption(googleIdOption)
                 .build()
 
-            val result = credentialManager.getCredential(context, request)
+            val result = credentialManager.getCredential(activity, request)
             val credential = result.credential
 
             if (credential is CustomCredential &&
@@ -56,10 +72,18 @@ class AuthManager(private val context: Context) {
                     ?: return Result.failure(Exception("Sign-in succeeded but user is null"))
                 Result.success(user)
             } else {
-                Result.failure(Exception("Unexpected credential type"))
+                val err = "Unexpected credential type"
+                _signInError.value = err
+                Result.failure(Exception(err))
             }
+        } catch (e: androidx.credentials.exceptions.NoCredentialException) {
+            val msg = "No Google account found. Add a Google account in device Settings first."
+            Log.e("AuthManager", msg, e)
+            _signInError.value = msg
+            Result.failure(e)
         } catch (e: Exception) {
             Log.e("AuthManager", "Google sign-in failed", e)
+            _signInError.value = "Sign-in failed: ${e.message}"
             Result.failure(e)
         }
     }

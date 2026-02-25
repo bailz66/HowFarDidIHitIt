@@ -18,7 +18,6 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.tasks.await
 import org.json.JSONArray
-import org.json.JSONObject
 
 class ShotRepository(context: Context) {
 
@@ -26,6 +25,8 @@ class ShotRepository(context: Context) {
     private val firestore = FirebaseFirestore.getInstance()
 
     private val uid: String? get() = FirebaseAuth.getInstance().currentUser?.uid
+
+    fun snapshotUid(): String? = uid
 
     // ── Shots ────────────────────────────────────────────────────────────────
 
@@ -38,6 +39,7 @@ class ShotRepository(context: Context) {
                 .addSnapshotListener { snapshot, error ->
                     if (error != null) {
                         Log.e("ShotRepository", "Firestore shots listener error", error)
+                        trySend(loadShotsFromPrefs())
                         return@addSnapshotListener
                     }
                     val shots = snapshot?.documents?.mapNotNull { doc ->
@@ -45,7 +47,8 @@ class ShotRepository(context: Context) {
                             Log.e("ShotRepository", "Failed to parse shot doc", e)
                             null
                         }
-                    } ?: emptyList()
+                    }?.distinctBy { it.timestampMs }
+                        ?: emptyList()
                     trySend(shots)
                 }
             awaitClose { registration.remove() }
@@ -56,12 +59,13 @@ class ShotRepository(context: Context) {
         return loadShotsFromPrefs()
     }
 
-    suspend fun saveShot(shot: ShotResult) {
-        val currentUid = uid
+    suspend fun saveShot(shot: ShotResult, forUid: String? = null) {
+        val currentUid = forUid ?: uid
         if (currentUid != null) {
             firestore.collection("users").document(currentUid)
                 .collection("shots")
-                .add(shot.toFirestoreMap())
+                .document(shot.timestampMs.toString())
+                .set(shot.toFirestoreMap())
                 .await()
         } else {
             val shots = loadShotsFromPrefs() + shot
@@ -69,8 +73,8 @@ class ShotRepository(context: Context) {
         }
     }
 
-    suspend fun deleteShot(timestampMs: Long) {
-        val currentUid = uid
+    suspend fun deleteShot(timestampMs: Long, forUid: String? = null) {
+        val currentUid = forUid ?: uid
         if (currentUid != null) {
             val query = firestore.collection("users").document(currentUid)
                 .collection("shots")
@@ -90,8 +94,8 @@ class ShotRepository(context: Context) {
         saveShotsToPrefs(shots)
     }
 
-    suspend fun updateShot(shot: ShotResult) {
-        val currentUid = uid
+    suspend fun updateShot(shot: ShotResult, forUid: String? = null) {
+        val currentUid = forUid ?: uid
         if (currentUid != null) {
             val query = firestore.collection("users").document(currentUid)
                 .collection("shots")
@@ -115,6 +119,7 @@ class ShotRepository(context: Context) {
                 .addSnapshotListener { snapshot, error ->
                     if (error != null) {
                         Log.e("ShotRepository", "Firestore settings listener error", error)
+                        trySend(loadSettingsFromPrefs())
                         return@addSnapshotListener
                     }
                     if (snapshot != null && snapshot.exists()) {
@@ -131,8 +136,8 @@ class ShotRepository(context: Context) {
         return loadSettingsFromPrefs()
     }
 
-    suspend fun saveSettingsToFirestore(settings: AppSettings) {
-        val currentUid = uid ?: return
+    suspend fun saveSettingsToFirestore(settings: AppSettings, forUid: String? = null) {
+        val currentUid = forUid ?: uid ?: return
         firestore.collection("users").document(currentUid)
             .collection("settings").document("prefs")
             .set(settings.toFirestoreMap())
@@ -147,26 +152,28 @@ class ShotRepository(context: Context) {
 
     suspend fun migrateLocalToFirestore() {
         val currentUid = uid ?: return
-        if (prefs.getBoolean("migrated_$currentUid", false)) return
 
         val localShots = loadShotsFromPrefs()
         if (localShots.isNotEmpty()) {
-            val batch = firestore.batch()
             val shotsRef = firestore.collection("users").document(currentUid)
                 .collection("shots")
-            localShots.forEach { shot ->
-                batch.set(shotsRef.document(), shot.toFirestoreMap())
+            for (chunk in localShots.chunked(500)) {
+                val batch = firestore.batch()
+                chunk.forEach { shot ->
+                    batch.set(shotsRef.document(shot.timestampMs.toString()), shot.toFirestoreMap())
+                }
+                batch.commit().await()
             }
-            batch.commit().await()
+            // Clear local shots after successful upload to prevent divergent data
+            prefs.edit().remove("shot_history").apply()
         }
 
+        // Settings are always synced (idempotent)
         val localSettings = loadSettingsFromPrefs()
         firestore.collection("users").document(currentUid)
             .collection("settings").document("prefs")
             .set(localSettings.toFirestoreMap())
             .await()
-
-        prefs.edit().putBoolean("migrated_$currentUid", true).apply()
     }
 
     // ── SharedPreferences (local) ────────────────────────────────────────────
@@ -236,49 +243,7 @@ class ShotRepository(context: Context) {
         }
     }
 
-    // ── Serialization helpers ────────────────────────────────────────────────
-
-    private fun ShotResult.toJson(): JSONObject = JSONObject().apply {
-        put("club", club.name)
-        put("distanceYards", distanceYards)
-        put("distanceMeters", distanceMeters)
-        put("weatherDescription", weatherDescription)
-        put("temperatureF", temperatureF)
-        put("temperatureC", temperatureC)
-        put("windSpeedKmh", windSpeedKmh)
-        put("windDirectionCompass", windDirectionCompass)
-        put("windDirectionDegrees", windDirectionDegrees)
-        put("shotBearingDegrees", shotBearingDegrees)
-        put("timestampMs", timestampMs)
-    }
-
-    private fun JSONObject.toShotResult(): ShotResult = ShotResult(
-        club = enumValueOfOrNull<Club>(getString("club")) ?: Club.DRIVER,
-        distanceYards = getInt("distanceYards"),
-        distanceMeters = getInt("distanceMeters"),
-        weatherDescription = getString("weatherDescription"),
-        temperatureF = getInt("temperatureF"),
-        temperatureC = getInt("temperatureC"),
-        windSpeedKmh = getDouble("windSpeedKmh"),
-        windDirectionCompass = getString("windDirectionCompass"),
-        windDirectionDegrees = optInt("windDirectionDegrees", 0),
-        shotBearingDegrees = optDouble("shotBearingDegrees", 0.0),
-        timestampMs = optLong("timestampMs", System.currentTimeMillis())
-    )
-
-    private fun ShotResult.toFirestoreMap(): Map<String, Any> = mapOf(
-        "club" to club.name,
-        "distanceYards" to distanceYards,
-        "distanceMeters" to distanceMeters,
-        "weatherDescription" to weatherDescription,
-        "temperatureF" to temperatureF,
-        "temperatureC" to temperatureC,
-        "windSpeedKmh" to windSpeedKmh,
-        "windDirectionCompass" to windDirectionCompass,
-        "windDirectionDegrees" to windDirectionDegrees,
-        "shotBearingDegrees" to shotBearingDegrees,
-        "timestampMs" to timestampMs
-    )
+    // ── Firestore document deserialization (keeps Firestore SDK types private) ──
 
     private fun com.google.firebase.firestore.DocumentSnapshot.toShotResult(): ShotResult {
         return ShotResult(
@@ -296,14 +261,6 @@ class ShotRepository(context: Context) {
         )
     }
 
-    private fun AppSettings.toFirestoreMap(): Map<String, Any> = mapOf(
-        "distanceUnit" to distanceUnit.name,
-        "windUnit" to windUnit.name,
-        "temperatureUnit" to temperatureUnit.name,
-        "trajectory" to trajectory.name,
-        "enabledClubs" to enabledClubs.map { it.name }
-    )
-
     @Suppress("UNCHECKED_CAST")
     private fun com.google.firebase.firestore.DocumentSnapshot.toAppSettings(): AppSettings {
         return AppSettings(
@@ -320,7 +277,4 @@ class ShotRepository(context: Context) {
                 ?: Club.entries.toSet()
         )
     }
-
-    private inline fun <reified T : Enum<T>> enumValueOfOrNull(name: String): T? =
-        try { enumValueOf<T>(name) } catch (_: IllegalArgumentException) { null }
 }

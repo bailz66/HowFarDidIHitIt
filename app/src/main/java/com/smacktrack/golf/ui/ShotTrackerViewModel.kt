@@ -13,6 +13,7 @@ package com.smacktrack.golf.ui
  */
 
 import android.app.Application
+import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.smacktrack.golf.data.AuthManager
@@ -48,6 +49,8 @@ enum class ShotPhase {
     CALIBRATING_END,
     RESULT
 }
+
+enum class SyncStatus { IDLE, SYNCING, SYNCED, ERROR }
 
 enum class DistanceUnit(val label: String) {
     YARDS("Yards"),
@@ -103,7 +106,9 @@ data class ShotTrackerUiState(
     val settings: AppSettings = AppSettings(),
     val locationPermissionGranted: Boolean = false,
     val userEmail: String? = null,
-    val isSignedIn: Boolean = false
+    val isSignedIn: Boolean = false,
+    val signInError: String? = null,
+    val syncStatus: SyncStatus = SyncStatus.IDLE
 )
 
 class ShotTrackerViewModel(application: Application) : AndroidViewModel(application) {
@@ -111,9 +116,14 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
     private val repository = ShotRepository(application)
     var authManager: AuthManager? = null
         set(value) {
+            field?.cleanup()
             field = value
             if (value != null) observeAuthState()
         }
+
+    private fun toast(msg: String) {
+        Toast.makeText(getApplication(), msg, Toast.LENGTH_SHORT).show()
+    }
 
     private val _uiState = MutableStateFlow(ShotTrackerUiState())
     val uiState: StateFlow<ShotTrackerUiState> = _uiState.asStateFlow()
@@ -122,6 +132,8 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
 
     private var shotsCollectionJob: Job? = null
     private var settingsCollectionJob: Job? = null
+    private var authObserverJob: Job? = null
+    private var errorObserverJob: Job? = null
 
     init {
         val savedShots = repository.loadShots()
@@ -131,7 +143,9 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
 
     private fun observeAuthState() {
         val auth = authManager ?: return
-        viewModelScope.launch {
+        authObserverJob?.cancel()
+        errorObserverJob?.cancel()
+        authObserverJob = viewModelScope.launch {
             auth.currentUser.collectLatest { user ->
                 _uiState.update {
                     it.copy(
@@ -140,13 +154,29 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
                     )
                 }
                 if (user != null) {
+                    toast("Signed in as ${user.email}")
                     // Migrate local data on first sign-in
-                    try { repository.migrateLocalToFirestore() } catch (e: Exception) {
+                    _uiState.update { it.copy(syncStatus = SyncStatus.SYNCING) }
+                    try {
+                        repository.migrateLocalToFirestore()
+                        toast("Local data migrated to cloud")
+                        _uiState.update { it.copy(syncStatus = SyncStatus.SYNCED) }
+                    } catch (e: Exception) {
                         android.util.Log.e("ViewModel", "Migration failed", e)
+                        toast("Migration failed: ${e.message}")
+                        _uiState.update { it.copy(syncStatus = SyncStatus.ERROR) }
                     }
+                } else {
+                    toast("Signed out — using local storage")
+                    _uiState.update { it.copy(syncStatus = SyncStatus.IDLE) }
                 }
                 // Re-subscribe to the correct data source
                 subscribeToData()
+            }
+        }
+        errorObserverJob = viewModelScope.launch {
+            auth.signInError.collectLatest { error ->
+                _uiState.update { it.copy(signInError = error) }
             }
         }
     }
@@ -164,6 +194,26 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
         settingsCollectionJob = viewModelScope.launch {
             repository.settingsFlow().collectLatest { settings ->
                 _uiState.update { it.copy(settings = settings) }
+            }
+        }
+    }
+
+    private fun firestoreSync(block: suspend () -> Unit) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(syncStatus = SyncStatus.SYNCING) }
+            try {
+                block()
+                _uiState.update { it.copy(syncStatus = SyncStatus.SYNCED) }
+            } catch (e: Exception) {
+                android.util.Log.w("ViewModel", "Firestore write failed, retrying once", e)
+                try {
+                    delay(3000)
+                    block()
+                    _uiState.update { it.copy(syncStatus = SyncStatus.SYNCED) }
+                } catch (e2: Exception) {
+                    android.util.Log.e("ViewModel", "Firestore retry failed", e2)
+                    _uiState.update { it.copy(syncStatus = SyncStatus.ERROR) }
+                }
             }
         }
     }
@@ -295,6 +345,7 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
         val state = _uiState.value
         val startCoord = state.startCoordinate ?: return
         val club = state.selectedClub ?: return
+        val capturedUid = repository.snapshotUid()
 
         _uiState.update { it.copy(phase = ShotPhase.CALIBRATING_END) }
 
@@ -342,11 +393,7 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
                 shotBearingDegrees = shotBearing
             )
 
-            // Save to the correct backend
-            try { repository.saveShot(result) } catch (e: Exception) {
-                android.util.Log.e("ViewModel", "Failed to save shot", e)
-            }
-
+            // Update UI immediately — don't block on network
             _uiState.update {
                 it.copy(
                     phase = ShotPhase.RESULT,
@@ -354,8 +401,11 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
                     shotHistory = it.shotHistory + result
                 )
             }
-            // Also persist to SharedPrefs as local backup
+            // Persist to SharedPrefs as local backup
             persistShots()
+            toast("Shot saved" + if (_uiState.value.isSignedIn) " to cloud" else " locally")
+            // Save to Firestore in background (non-blocking, with retry)
+            firestoreSync { repository.saveShot(result, forUid = capturedUid) }
         }
     }
 
@@ -378,6 +428,7 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
     override fun onCleared() {
         super.onCleared()
         stopLocationUpdates()
+        authManager?.cleanup()
     }
 
     // ── Settings ──────────────────────────────────────────────────────────────
@@ -415,18 +466,17 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
 
     fun deleteShot(index: Int) {
         val shot = _uiState.value.shotHistory.getOrNull(index) ?: return
+        val capturedUid = repository.snapshotUid()
         _uiState.update {
             it.copy(shotHistory = it.shotHistory.filterIndexed { i, _ -> i != index })
         }
-        viewModelScope.launch {
-            try { repository.deleteShot(shot.timestampMs) } catch (e: Exception) {
-                android.util.Log.e("ViewModel", "Failed to delete shot", e)
-            }
-        }
         persistShots()
+        toast("Shot deleted" + if (_uiState.value.isSignedIn) " from cloud" else " locally")
+        firestoreSync { repository.deleteShot(shot.timestampMs, forUid = capturedUid) }
     }
 
     fun adjustWindDirection(deltaDegrees: Int) {
+        val capturedUid = repository.snapshotUid()
         _uiState.update { state ->
             val result = state.shotResult ?: return@update state
             val newDeg = (result.windDirectionDegrees + deltaDegrees + 360) % 360
@@ -439,16 +489,14 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
             state.copy(shotResult = updated, shotHistory = history)
         }
         persistShots()
-        // Also update in Firestore if signed in
         val result = _uiState.value.shotResult
         if (result != null) {
-            viewModelScope.launch {
-                try { repository.updateShot(result) } catch (_: Exception) {}
-            }
+            firestoreSync { repository.updateShot(result, forUid = capturedUid) }
         }
     }
 
     fun adjustWindSpeed(deltaKmh: Double) {
+        val capturedUid = repository.snapshotUid()
         _uiState.update { state ->
             val result = state.shotResult ?: return@update state
             val updated = result.copy(
@@ -461,9 +509,7 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
         persistShots()
         val result = _uiState.value.shotResult
         if (result != null) {
-            viewModelScope.launch {
-                try { repository.updateShot(result) } catch (_: Exception) {}
-            }
+            firestoreSync { repository.updateShot(result, forUid = capturedUid) }
         }
     }
 
@@ -474,6 +520,11 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch {
             auth.signInWithGoogle(webClientId)
         }
+    }
+
+    fun clearSignInError() {
+        authManager?.clearError()
+        _uiState.update { it.copy(signInError = null) }
     }
 
     fun signOut() {
@@ -494,14 +545,11 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     private fun persistSettings() {
-        repository.saveSettings(_uiState.value.settings)
-        // Also save to Firestore if signed in
+        val capturedUid = repository.snapshotUid()
+        val settings = _uiState.value.settings
+        repository.saveSettings(settings)
         if (_uiState.value.isSignedIn) {
-            viewModelScope.launch {
-                try {
-                    repository.saveSettingsToFirestore(_uiState.value.settings)
-                } catch (_: Exception) {}
-            }
+            firestoreSync { repository.saveSettingsToFirestore(settings, forUid = capturedUid) }
         }
     }
 }

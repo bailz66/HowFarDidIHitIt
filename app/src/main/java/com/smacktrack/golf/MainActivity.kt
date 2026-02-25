@@ -21,9 +21,14 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Place
@@ -50,6 +55,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -60,6 +66,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import com.smacktrack.golf.data.AuthManager
 import com.smacktrack.golf.ui.ShotTrackerViewModel
+import com.smacktrack.golf.ui.SyncStatus
 import com.smacktrack.golf.ui.screen.AnalyticsScreen
 import com.smacktrack.golf.ui.screen.HistoryScreen
 import com.smacktrack.golf.ui.screen.SettingsScreen
@@ -158,6 +165,22 @@ fun SmackTrackApp(viewModel: ShotTrackerViewModel) {
                     )
                 },
                 actions = {
+                    if (uiState.isSignedIn && uiState.syncStatus != SyncStatus.IDLE) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    when (uiState.syncStatus) {
+                                        SyncStatus.SYNCED -> DarkGreen
+                                        SyncStatus.SYNCING -> Color(0xFFFFA000)
+                                        SyncStatus.ERROR -> Color(0xFFB3261E)
+                                        else -> Color.Transparent
+                                    }
+                                )
+                        )
+                        Spacer(Modifier.width(4.dp))
+                    }
                     IconButton(
                         onClick = {
                             showSettings = !showSettings
@@ -224,8 +247,11 @@ fun SmackTrackApp(viewModel: ShotTrackerViewModel) {
                 onClubToggled = viewModel::toggleClub,
                 isSignedIn = uiState.isSignedIn,
                 userEmail = uiState.userEmail,
+                syncStatus = uiState.syncStatus,
+                signInError = uiState.signInError,
                 onSignIn = { viewModel.signInWithGoogle(webClientId) },
                 onSignOut = { viewModel.signOut() },
+                onClearError = { viewModel.clearSignInError() },
                 modifier = Modifier.padding(innerPadding)
             )
         } else {

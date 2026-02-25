@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.sp
 import com.smacktrack.golf.domain.Club
 import com.smacktrack.golf.ui.AppSettings
 import com.smacktrack.golf.ui.DistanceUnit
+import com.smacktrack.golf.ui.SyncStatus
 import com.smacktrack.golf.ui.TemperatureUnit
 import com.smacktrack.golf.ui.Trajectory
 import com.smacktrack.golf.ui.WindUnit
@@ -77,8 +78,11 @@ fun SettingsScreen(
     onClubToggled: (Club) -> Unit,
     isSignedIn: Boolean = false,
     userEmail: String? = null,
+    syncStatus: SyncStatus = SyncStatus.IDLE,
+    signInError: String? = null,
     onSignIn: () -> Unit = {},
     onSignOut: () -> Unit = {},
+    onClearError: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var showHowItWorks by remember { mutableStateOf(false) }
@@ -266,6 +270,18 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = TextSecondary
                 )
+                Spacer(Modifier.height(6.dp))
+                val (statusText, statusColor) = when (syncStatus) {
+                    SyncStatus.IDLE -> "Local only" to TextTertiary
+                    SyncStatus.SYNCING -> "Syncing..." to DarkGreen
+                    SyncStatus.SYNCED -> "Synced" to DarkGreen
+                    SyncStatus.ERROR -> "Sync error" to Color(0xFFB3261E)
+                }
+                Text(
+                    text = statusText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = statusColor
+                )
                 Spacer(Modifier.height(12.dp))
                 Box(
                     modifier = Modifier
@@ -301,6 +317,15 @@ fun SettingsScreen(
                     color = Color.White
                 )
             }
+        }
+
+        if (signInError != null) {
+            Spacer(Modifier.height(12.dp))
+            Text(
+                text = signInError,
+                style = MaterialTheme.typography.bodySmall,
+                color = Color(0xFFB3261E)
+            )
         }
 
         Spacer(Modifier.height(32.dp))
