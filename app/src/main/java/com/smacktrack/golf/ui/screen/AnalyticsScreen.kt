@@ -5,7 +5,7 @@ package com.smacktrack.golf.ui.screen
  *
  * Shows per-club averages (AVG / LNG / SHT) with time-period filtering,
  * a "Your Bag" summary card, mini sparklines, trend indicators, and
- * an optional wind-adjusted toggle. Tapping a club row drills into a detail
+ * an optional weather-adjusted toggle. Tapping a club row drills into a detail
  * view showing a distance trend chart and session-grouped shot history.
  *
  * Uses [AnimatedContent] for smooth slide transitions between the list and detail views.
@@ -117,7 +117,7 @@ fun AnalyticsScreen(
     modifier: Modifier = Modifier
 ) {
     var selectedPeriod by remember { mutableStateOf(TimePeriod.ALL) }
-    var windAdjusted by remember { mutableStateOf(false) }
+    var weatherAdjusted by remember { mutableStateOf(false) }
     var selectedClub by remember { mutableStateOf<Club?>(null) }
     var viewMode by remember { mutableStateOf(StatsView.CLUBS) }
 
@@ -217,8 +217,8 @@ fun AnalyticsScreen(
                     shots = filtered.filter { it.club == club },
                     allShots = shotHistory,
                     settings = settings,
-                    windAdjusted = windAdjusted,
-                    onWindAdjustedChanged = { windAdjusted = it },
+                    weatherAdjusted = weatherAdjusted,
+                    onWeatherAdjustedChanged = { weatherAdjusted = it },
                     onDeleteShot = onDeleteShot,
                     onBack = { selectedClub = null }
                 )
@@ -229,8 +229,8 @@ fun AnalyticsScreen(
                         settings = settings,
                         selectedPeriod = selectedPeriod,
                         onPeriodChanged = { selectedPeriod = it },
-                        windAdjusted = windAdjusted,
-                        onWindAdjustedChanged = { windAdjusted = it },
+                        weatherAdjusted = weatherAdjusted,
+                        onWeatherAdjustedChanged = { weatherAdjusted = it },
                         onClubClicked = { selectedClub = it }
                     )
                     StatsView.DISTANCES -> DistanceChartView(
@@ -238,8 +238,8 @@ fun AnalyticsScreen(
                         settings = settings,
                         selectedPeriod = selectedPeriod,
                         onPeriodChanged = { selectedPeriod = it },
-                        windAdjusted = windAdjusted,
-                        onWindAdjustedChanged = { windAdjusted = it }
+                        weatherAdjusted = weatherAdjusted,
+                        onWeatherAdjustedChanged = { weatherAdjusted = it }
                     )
                 }
             }
@@ -249,16 +249,18 @@ fun AnalyticsScreen(
 
 // ── Distance helper ─────────────────────────────────────────────────────────
 
-private fun distanceFor(shot: ShotResult, useYards: Boolean, windAdjusted: Boolean, settings: AppSettings): Int {
+private fun distanceFor(shot: ShotResult, useYards: Boolean, weatherAdjusted: Boolean, settings: AppSettings): Int {
     val raw = if (useYards) shot.distanceYards else shot.distanceMeters
-    if (!windAdjusted) return raw
-    val effect = WindCalculator.estimateWindEffectYards(
-        shot.windSpeedKmh,
-        WindCalculator.relativeWindAngle(shot.windDirectionDegrees, shot.shotBearingDegrees),
-        shot.distanceYards,
-        settings.trajectory.multiplier
+    if (!weatherAdjusted) return raw
+    val effect = WindCalculator.analyze(
+        windSpeedKmh = shot.windSpeedKmh,
+        windFromDegrees = shot.windDirectionDegrees,
+        shotBearingDegrees = shot.shotBearingDegrees,
+        distanceYards = shot.distanceYards,
+        trajectoryMultiplier = settings.trajectory.multiplier,
+        temperatureF = shot.temperatureF
     )
-    val adjustedYards = shot.distanceYards - effect
+    val adjustedYards = shot.distanceYards - effect.totalWeatherEffectYards
     return if (useYards) adjustedYards else (adjustedYards * 0.9144).toInt()
 }
 
@@ -315,8 +317,8 @@ private fun StatsListView(
     settings: AppSettings,
     selectedPeriod: TimePeriod,
     onPeriodChanged: (TimePeriod) -> Unit,
-    windAdjusted: Boolean,
-    onWindAdjustedChanged: (Boolean) -> Unit,
+    weatherAdjusted: Boolean,
+    onWeatherAdjustedChanged: (Boolean) -> Unit,
     onClubClicked: (Club) -> Unit
 ) {
     val useYards = settings.distanceUnit == DistanceUnit.YARDS
@@ -327,7 +329,7 @@ private fun StatsListView(
         .groupBy { it.club }
         .map { (club, clubShots) ->
             val sortedShots = clubShots.sortedBy { it.timestampMs }
-            val distances = sortedShots.map { distanceFor(it, useYards, windAdjusted, settings) }
+            val distances = sortedShots.map { distanceFor(it, useYards, weatherAdjusted, settings) }
             ClubStats(
                 club = club,
                 shotCount = clubShots.size,
@@ -432,12 +434,12 @@ private fun StatsListView(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
-                        .clickable { onWindAdjustedChanged(!windAdjusted) }
+                        .clickable { onWeatherAdjustedChanged(!weatherAdjusted) }
                         .padding(start = 4.dp, end = 8.dp)
                 ) {
                     Checkbox(
-                        checked = windAdjusted,
-                        onCheckedChange = { onWindAdjustedChanged(it) },
+                        checked = weatherAdjusted,
+                        onCheckedChange = { onWeatherAdjustedChanged(it) },
                         colors = CheckboxDefaults.colors(
                             checkedColor = DarkGreen,
                             uncheckedColor = TextTertiary
@@ -446,10 +448,10 @@ private fun StatsListView(
                     )
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        text = "Wind adjusted",
+                        text = "Weather adj.",
                         style = MaterialTheme.typography.labelSmall,
-                        color = if (windAdjusted) DarkGreen else TextSecondary,
-                        fontWeight = if (windAdjusted) FontWeight.SemiBold else FontWeight.Normal
+                        color = if (weatherAdjusted) DarkGreen else TextSecondary,
+                        fontWeight = if (weatherAdjusted) FontWeight.SemiBold else FontWeight.Normal
                     )
                 }
             }
@@ -602,8 +604,8 @@ private fun ClubDetailView(
     shots: List<ShotResult>,
     allShots: List<ShotResult>,
     settings: AppSettings,
-    windAdjusted: Boolean,
-    onWindAdjustedChanged: (Boolean) -> Unit,
+    weatherAdjusted: Boolean,
+    onWeatherAdjustedChanged: (Boolean) -> Unit,
     onDeleteShot: (Int) -> Unit = {},
     onBack: () -> Unit
 ) {
@@ -629,7 +631,7 @@ private fun ClubDetailView(
     val unitLabel = if (useYards) "yds" else "m"
 
     val sortedShots = shots.sortedBy { it.timestampMs }
-    val distances = sortedShots.map { distanceFor(it, useYards, windAdjusted, settings) }
+    val distances = sortedShots.map { distanceFor(it, useYards, weatherAdjusted, settings) }
     val avg = if (distances.isNotEmpty()) distances.average().toInt() else 0
     val long = distances.maxOrNull() ?: 0
     val short = distances.minOrNull() ?: 0
@@ -715,17 +717,17 @@ private fun ClubDetailView(
 
                     Spacer(Modifier.weight(1f))
 
-                    // Wind adjusted toggle
+                    // Weather adjusted toggle
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
-                            .clickable { onWindAdjustedChanged(!windAdjusted) }
+                            .clickable { onWeatherAdjustedChanged(!weatherAdjusted) }
                             .padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
                         Checkbox(
-                            checked = windAdjusted,
-                            onCheckedChange = { onWindAdjustedChanged(it) },
+                            checked = weatherAdjusted,
+                            onCheckedChange = { onWeatherAdjustedChanged(it) },
                             colors = CheckboxDefaults.colors(
                                 checkedColor = DarkGreen,
                                 uncheckedColor = TextTertiary
@@ -734,10 +736,10 @@ private fun ClubDetailView(
                         )
                         Spacer(Modifier.width(4.dp))
                         Text(
-                            text = "Wind adj.",
+                            text = "Weather adj.",
                             style = MaterialTheme.typography.labelSmall,
-                            color = if (windAdjusted) DarkGreen else TextSecondary,
-                            fontWeight = if (windAdjusted) FontWeight.SemiBold else FontWeight.Normal
+                            color = if (weatherAdjusted) DarkGreen else TextSecondary,
+                            fontWeight = if (weatherAdjusted) FontWeight.SemiBold else FontWeight.Normal
                         )
                     }
                 }
@@ -841,7 +843,7 @@ private fun ClubDetailView(
                 ShotDetailRow(
                     shot = shot,
                     settings = settings,
-                    windAdjusted = windAdjusted,
+                    weatherAdjusted = weatherAdjusted,
                     clubLong = long,
                     onDelete = if (actualIndex >= 0) {{ pendingDeleteIndex = actualIndex }} else null
                 )
@@ -888,7 +890,7 @@ private fun DetailStat(label: String, value: Int, unit: String) {
 private fun ShotDetailRow(
     shot: ShotResult,
     settings: AppSettings,
-    windAdjusted: Boolean,
+    weatherAdjusted: Boolean,
     clubLong: Int = 0,
     onDelete: (() -> Unit)? = null
 ) {
@@ -896,16 +898,17 @@ private fun ShotDetailRow(
     val rawDist = if (useYards) shot.distanceYards else shot.distanceMeters
     val unitLabel = if (useYards) "yds" else "m"
 
-    val windEffect = WindCalculator.analyze(
+    val weatherEffect = WindCalculator.analyze(
         windSpeedKmh = shot.windSpeedKmh,
         windFromDegrees = shot.windDirectionDegrees,
         shotBearingDegrees = shot.shotBearingDegrees,
         distanceYards = shot.distanceYards,
-        trajectoryMultiplier = settings.trajectory.multiplier
+        trajectoryMultiplier = settings.trajectory.multiplier,
+        temperatureF = shot.temperatureF
     )
-    val adjustedYards = shot.distanceYards - windEffect.carryEffectYards
+    val adjustedYards = shot.distanceYards - weatherEffect.totalWeatherEffectYards
     val adjustedDist = if (useYards) adjustedYards else (adjustedYards * 0.9144).toInt()
-    val displayDist = if (windAdjusted) adjustedDist else rawDist
+    val displayDist = if (weatherAdjusted) adjustedDist else rawDist
 
     val windSpeed = if (settings.windUnit == WindUnit.KMH) {
         "${shot.windSpeedKmh.toInt()} km/h"
@@ -919,7 +922,7 @@ private fun ShotDetailRow(
         "${shot.temperatureC}\u00B0C"
     }
 
-    val windColor = windCategoryColor(windEffect.colorCategory)
+    val windColor = windCategoryColor(weatherEffect.colorCategory)
 
     Box(
         modifier = Modifier
@@ -951,8 +954,8 @@ private fun ShotDetailRow(
                         shotBearing = shot.shotBearingDegrees
                     )
                 }
-                if (windEffect.carryEffectYards != 0) {
-                    val diff = windEffect.carryEffectYards
+                if (weatherEffect.carryEffectYards != 0) {
+                    val diff = weatherEffect.carryEffectYards
                     val diffText = if (diff >= 0) "+$diff $unitLabel" else "$diff $unitLabel"
                     Text(
                         text = "Wind effect: $diffText",

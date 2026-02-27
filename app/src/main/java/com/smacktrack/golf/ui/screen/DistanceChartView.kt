@@ -50,23 +50,25 @@ private data class ClubDistanceBar(
     val min: Int,
     val max: Int,
     val avg: Int,
-    val windAdjAvg: Int?,
+    val weatherAdjAvg: Int?,
     val shotCount: Int,
     val chipColor: Color
 )
 
 // ── Distance helper (mirrors AnalyticsScreen) ───────────────────────────────
 
-private fun distanceFor(shot: ShotResult, useYards: Boolean, windAdjusted: Boolean, settings: AppSettings): Int {
+private fun distanceFor(shot: ShotResult, useYards: Boolean, weatherAdjusted: Boolean, settings: AppSettings): Int {
     val raw = if (useYards) shot.distanceYards else shot.distanceMeters
-    if (!windAdjusted) return raw
-    val effect = WindCalculator.estimateWindEffectYards(
-        shot.windSpeedKmh,
-        WindCalculator.relativeWindAngle(shot.windDirectionDegrees, shot.shotBearingDegrees),
-        shot.distanceYards,
-        settings.trajectory.multiplier
+    if (!weatherAdjusted) return raw
+    val effect = WindCalculator.analyze(
+        windSpeedKmh = shot.windSpeedKmh,
+        windFromDegrees = shot.windDirectionDegrees,
+        shotBearingDegrees = shot.shotBearingDegrees,
+        distanceYards = shot.distanceYards,
+        trajectoryMultiplier = settings.trajectory.multiplier,
+        temperatureF = shot.temperatureF
     )
-    val adjustedYards = shot.distanceYards - effect
+    val adjustedYards = shot.distanceYards - effect.totalWeatherEffectYards
     return if (useYards) adjustedYards else (adjustedYards * 0.9144).toInt()
 }
 
@@ -78,8 +80,8 @@ fun DistanceChartView(
     settings: AppSettings,
     selectedPeriod: TimePeriod,
     onPeriodChanged: (TimePeriod) -> Unit,
-    windAdjusted: Boolean,
-    onWindAdjustedChanged: (Boolean) -> Unit
+    weatherAdjusted: Boolean,
+    onWeatherAdjustedChanged: (Boolean) -> Unit
 ) {
     val useYards = settings.distanceUnit == DistanceUnit.YARDS
     val unitLabel = if (useYards) "yds" else "m"
@@ -88,14 +90,14 @@ fun DistanceChartView(
     val bars = shots
         .groupBy { it.club }
         .map { (club, clubShots) ->
-            val rawDistances = clubShots.map { distanceFor(it, useYards, windAdjusted = false, settings) }
-            val adjDistances = clubShots.map { distanceFor(it, useYards, windAdjusted = true, settings) }
+            val rawDistances = clubShots.map { distanceFor(it, useYards, weatherAdjusted = false, settings) }
+            val adjDistances = clubShots.map { distanceFor(it, useYards, weatherAdjusted = true, settings) }
             ClubDistanceBar(
                 club = club,
                 min = rawDistances.min(),
                 max = rawDistances.max(),
                 avg = rawDistances.average().toInt(),
-                windAdjAvg = if (windAdjusted) adjDistances.average().toInt() else null,
+                weatherAdjAvg = if (weatherAdjusted) adjDistances.average().toInt() else null,
                 shotCount = clubShots.size,
                 chipColor = clubChipColor(club.sortOrder)
             )
@@ -140,7 +142,7 @@ fun DistanceChartView(
             }
         }
 
-        // Wind adjusted toggle + shot count
+        // Weather adjusted toggle + shot count
         item {
             Row(
                 modifier = Modifier
@@ -158,12 +160,12 @@ fun DistanceChartView(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
-                        .clickable { onWindAdjustedChanged(!windAdjusted) }
+                        .clickable { onWeatherAdjustedChanged(!weatherAdjusted) }
                         .padding(start = 4.dp, end = 8.dp)
                 ) {
                     Checkbox(
-                        checked = windAdjusted,
-                        onCheckedChange = { onWindAdjustedChanged(it) },
+                        checked = weatherAdjusted,
+                        onCheckedChange = { onWeatherAdjustedChanged(it) },
                         colors = CheckboxDefaults.colors(
                             checkedColor = DarkGreen,
                             uncheckedColor = TextTertiary
@@ -172,10 +174,10 @@ fun DistanceChartView(
                     )
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        text = "Wind adjusted",
+                        text = "Weather adj.",
                         style = MaterialTheme.typography.labelSmall,
-                        color = if (windAdjusted) DarkGreen else TextSecondary,
-                        fontWeight = if (windAdjusted) FontWeight.SemiBold else FontWeight.Normal
+                        color = if (weatherAdjusted) DarkGreen else TextSecondary,
+                        fontWeight = if (weatherAdjusted) FontWeight.SemiBold else FontWeight.Normal
                     )
                 }
             }
@@ -194,7 +196,7 @@ fun DistanceChartView(
                 bar = bar,
                 globalMax = globalMax,
                 unitLabel = unitLabel,
-                windAdjusted = windAdjusted
+                weatherAdjusted = weatherAdjusted
             )
         }
 
@@ -202,7 +204,7 @@ fun DistanceChartView(
         if (bars.isNotEmpty()) {
             item {
                 Spacer(Modifier.height(4.dp))
-                ChartLegend(windAdjusted = windAdjusted)
+                ChartLegend(weatherAdjusted = weatherAdjusted)
             }
         }
 
@@ -279,7 +281,7 @@ private fun ClubRangeRow(
     bar: ClubDistanceBar,
     globalMax: Int,
     unitLabel: String,
-    windAdjusted: Boolean
+    weatherAdjusted: Boolean
 ) {
     Row(
         modifier = Modifier
@@ -362,9 +364,9 @@ private fun ClubRangeRow(
                         center = Offset(avgX, centerY)
                     )
 
-                    // Wind-adjusted average marker — hollow diamond
-                    if (windAdjusted && bar.windAdjAvg != null) {
-                        val waX = w * bar.windAdjAvg.toFloat() / globalMax
+                    // Weather-adjusted average marker — hollow diamond
+                    if (weatherAdjusted && bar.weatherAdjAvg != null) {
+                        val waX = w * bar.weatherAdjAvg.toFloat() / globalMax
                         val diamondSize = 5.dp.toPx()
                         val diamondPath = Path().apply {
                             moveTo(waX, centerY - diamondSize)
@@ -409,7 +411,7 @@ private fun ClubRangeRow(
 // ── Chart legend ────────────────────────────────────────────────────────────
 
 @Composable
-private fun ChartLegend(windAdjusted: Boolean) {
+private fun ChartLegend(weatherAdjusted: Boolean) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -450,10 +452,10 @@ private fun ChartLegend(windAdjusted: Boolean) {
             fontSize = 10.sp
         )
 
-        if (windAdjusted) {
+        if (weatherAdjusted) {
             Spacer(Modifier.width(16.dp))
 
-            // Wind-adjusted diamond legend
+            // Weather-adjusted diamond legend
             Canvas(modifier = Modifier.height(12.dp).width(12.dp)) {
                 val c = Offset(size.width / 2, size.height / 2)
                 val s = 4.dp.toPx()
@@ -468,7 +470,7 @@ private fun ChartLegend(windAdjusted: Boolean) {
             }
             Spacer(Modifier.width(4.dp))
             Text(
-                text = "Wind Adj",
+                text = "Weather Adj",
                 style = MaterialTheme.typography.labelSmall,
                 color = TextTertiary,
                 fontSize = 10.sp

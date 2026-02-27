@@ -29,8 +29,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -83,6 +86,7 @@ fun SettingsScreen(
     onSignIn: () -> Unit = {},
     onSignOut: () -> Unit = {},
     onClearError: () -> Unit = {},
+    onDonate: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var showHowItWorks by remember { mutableStateOf(false) }
@@ -326,6 +330,47 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = Color(0xFFB3261E)
             )
+        }
+
+        Spacer(Modifier.height(28.dp))
+        HorizontalDivider(color = Color(0xFFE0E2DC))
+        Spacer(Modifier.height(28.dp))
+
+        // ── Buy Me a Coffee ─────────────────────────────────
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color(0xFFFFF8E1))
+                .border(1.dp, Color(0xFFFFE082), RoundedCornerShape(16.dp))
+                .clickable { onDonate() }
+                .padding(vertical = 20.dp, horizontal = 24.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.FavoriteBorder,
+                    contentDescription = null,
+                    tint = Color(0xFF6D4C41),
+                    modifier = Modifier.size(24.dp)
+                )
+                Column {
+                    Text(
+                        text = "Buy me a coffee",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFF4E342E)
+                    )
+                    Text(
+                        text = "Support SmackTrack development",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF8D6E63)
+                    )
+                }
+            }
         }
 
         Spacer(Modifier.height(32.dp))

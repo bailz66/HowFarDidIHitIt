@@ -188,12 +188,14 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
         shotsCollectionJob = viewModelScope.launch {
             repository.shotsFlow().collectLatest { shots ->
                 _uiState.update { it.copy(shotHistory = shots) }
+                repository.saveShots(shots)
             }
         }
 
         settingsCollectionJob = viewModelScope.launch {
             repository.settingsFlow().collectLatest { settings ->
                 _uiState.update { it.copy(settings = settings) }
+                repository.saveSettings(settings)
             }
         }
     }

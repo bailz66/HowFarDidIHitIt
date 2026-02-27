@@ -252,20 +252,21 @@ object ShotCardRenderer {
 
         y += 160f
 
-        // 9. Wind-adjusted distance
-        if (result.windSpeedKmh > 0) {
-            val windEffect = WindCalculator.analyze(
+        // 9. Weather-adjusted distance (wind + temperature)
+        if (result.windSpeedKmh > 0 || result.temperatureF != 70) {
+            val weatherEffect = WindCalculator.analyze(
                 windSpeedKmh = result.windSpeedKmh,
                 windFromDegrees = result.windDirectionDegrees,
                 shotBearingDegrees = result.shotBearingDegrees,
                 distanceYards = result.distanceYards,
-                trajectoryMultiplier = settings.trajectory.multiplier
+                trajectoryMultiplier = settings.trajectory.multiplier,
+                temperatureF = result.temperatureF
             )
-            val noWindYards = result.distanceYards - windEffect.carryEffectYards
-            val noWindMeters = (noWindYards * 0.9144).toInt()
-            val adjustedDisplay = if (settings.distanceUnit == DistanceUnit.YARDS) "$noWindYards" else "$noWindMeters"
+            val adjustedYards = result.distanceYards - weatherEffect.totalWeatherEffectYards
+            val adjustedMeters = (adjustedYards * 0.9144).toInt()
+            val adjustedDisplay = if (settings.distanceUnit == DistanceUnit.YARDS) "$adjustedYards" else "$adjustedMeters"
             val unitLabel = if (settings.distanceUnit == DistanceUnit.YARDS) "yds" else "m"
-            val diff = windEffect.carryEffectYards
+            val diff = weatherEffect.totalWeatherEffectYards
             val diffText = if (diff >= 0) "(+$diff)" else "($diff)"
 
             val adjustedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -277,10 +278,10 @@ object ShotCardRenderer {
             val diffPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 typeface = poppinsSemiBold
                 textSize = 30f
-                color = windCategoryColorInt(windEffect.colorCategory)
+                color = windCategoryColorInt(weatherEffect.colorCategory)
             }
 
-            val baseText = "Wind Adjusted: $adjustedDisplay $unitLabel "
+            val baseText = "Weather Adjusted: $adjustedDisplay $unitLabel "
             val baseWidth = adjustedPaint.measureText(baseText)
             val diffWidth = diffPaint.measureText(diffText)
             val totalWidth = baseWidth + diffWidth

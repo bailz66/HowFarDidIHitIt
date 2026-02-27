@@ -69,7 +69,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.Canvas
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Refresh
@@ -128,7 +127,6 @@ fun ShotTrackerScreen(
     onWindDirectionChange: () -> Unit = {},
     onWindSpeedChange: (Double) -> Unit = {},
     onDeleteShot: (Int) -> Unit = {},
-    onDonate: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val settings = uiState.settings
@@ -148,8 +146,7 @@ fun ShotTrackerScreen(
                 shotHistorySize = uiState.shotHistory.size,
                 settings = settings,
                 onStart = onMarkStart,
-                onDeleteShot = onDeleteShot,
-                onDonate = onDonate
+                onDeleteShot = onDeleteShot
             )
             ShotPhase.CALIBRATING_START -> CalibratingContent(label = "Locking position")
             ShotPhase.WALKING -> {
@@ -189,8 +186,7 @@ private fun ClubSelectContent(
     shotHistorySize: Int,
     settings: AppSettings,
     onStart: () -> Unit,
-    onDeleteShot: (Int) -> Unit = {},
-    onDonate: () -> Unit = {}
+    onDeleteShot: (Int) -> Unit = {}
 ) {
     var pendingDeleteIndex by remember { mutableStateOf<Int?>(null) }
 
@@ -247,37 +243,6 @@ private fun ClubSelectContent(
                     onDelete = { pendingDeleteIndex = actualIndex }
                 )
                 Spacer(Modifier.height(8.dp))
-            }
-        }
-
-        // Donate tile
-        Spacer(Modifier.height(8.dp))
-        Box(
-            modifier = Modifier
-                .fillMaxWidth(0.6f)
-                .clip(RoundedCornerShape(16.dp))
-                .background(Color(0xFFFFF3E0))
-                .border(1.dp, Color(0xFFFFCC80), RoundedCornerShape(16.dp))
-                .clickable { onDonate() }
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.FavoriteBorder,
-                    contentDescription = null,
-                    tint = Color(0xFFE65100),
-                    modifier = Modifier.size(16.dp)
-                )
-                Text(
-                    text = "Buy me a coffee",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Color(0xFFBF360C),
-                    fontWeight = FontWeight.SemiBold
-                )
             }
         }
 
@@ -751,31 +716,31 @@ private fun ResultContent(
                     }
                 }
 
-                // Wind-adjusted distance
-                if (result.windSpeedKmh > 0) {
-                    val windEffect = WindCalculator.analyze(
+                // Weather-adjusted distance (wind + temperature)
+                if (result.windSpeedKmh > 0 || result.temperatureF != 70) {
+                    val weatherEffect = WindCalculator.analyze(
                         windSpeedKmh = result.windSpeedKmh,
                         windFromDegrees = result.windDirectionDegrees,
                         shotBearingDegrees = result.shotBearingDegrees,
                         distanceYards = result.distanceYards,
-                        trajectoryMultiplier = settings.trajectory.multiplier
+                        trajectoryMultiplier = settings.trajectory.multiplier,
+                        temperatureF = result.temperatureF
                     )
-                    // "Without wind" = actual distance minus the wind effect
-                    val noWindYards = result.distanceYards - windEffect.carryEffectYards
-                    val noWindMeters = (noWindYards * 0.9144).toInt()
+                    val adjustedYards = result.distanceYards - weatherEffect.totalWeatherEffectYards
+                    val adjustedMeters = (adjustedYards * 0.9144).toInt()
                     val adjustedDisplay = if (settings.distanceUnit == DistanceUnit.YARDS) {
-                        "$noWindYards"
+                        "$adjustedYards"
                     } else {
-                        "$noWindMeters"
+                        "$adjustedMeters"
                     }
                     val unitLabel = if (settings.distanceUnit == DistanceUnit.YARDS) "yds" else "m"
-                    val diff = windEffect.carryEffectYards
+                    val diff = weatherEffect.totalWeatherEffectYards
                     val diffText = if (diff >= 0) "(+$diff)" else "($diff)"
 
                     Spacer(Modifier.height(12.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = "Wind Adjusted: $adjustedDisplay $unitLabel ",
+                            text = "Weather Adjusted: $adjustedDisplay $unitLabel ",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.SemiBold,
                             color = TextSecondary
@@ -784,7 +749,7 @@ private fun ResultContent(
                             text = diffText,
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.SemiBold,
-                            color = windCategoryColor(windEffect.colorCategory)
+                            color = windCategoryColor(weatherEffect.colorCategory)
                         )
                     }
                 }

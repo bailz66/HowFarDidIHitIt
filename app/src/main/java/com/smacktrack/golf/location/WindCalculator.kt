@@ -130,13 +130,32 @@ object WindCalculator {
     }
 
     /**
-     * Full wind analysis result for display.
+     * Estimates carry distance adjustment due to temperature.
+     *
+     * Baseline: 70°F (standard conditions).
+     * ~2 yards per 10°F change per 200 yards of carry (TrackMan-calibrated).
+     * Hot air is less dense → less drag → ball flies further.
+     * Cold air is more dense → more drag → ball falls shorter.
+     *
+     * @param distanceYards Actual shot distance in yards
+     * @param temperatureF Temperature in Fahrenheit
+     * @return Estimated yards gained (+) or lost (-) due to temperature
+     */
+    fun estimateTemperatureEffectYards(distanceYards: Int, temperatureF: Int): Int {
+        if (distanceYards <= 0) return 0
+        return (distanceYards * (temperatureF - 70) / 1000.0).toInt()
+    }
+
+    /**
+     * Full weather analysis result for display.
      */
     data class WindEffect(
         val relativeAngleDeg: Float,
         val headwindComponentMph: Double,
         val crosswindComponentMph: Double,
         val carryEffectYards: Int,
+        val temperatureEffectYards: Int,
+        val totalWeatherEffectYards: Int,
         val lateralDisplacementYards: Double,
         val label: String,
         val colorCategory: WindColorCategory
@@ -149,14 +168,15 @@ object WindCalculator {
     }
 
     /**
-     * Computes the complete wind analysis for a shot.
+     * Computes the complete weather analysis for a shot (wind + temperature).
      */
     fun analyze(
         windSpeedKmh: Double,
         windFromDegrees: Int,
         shotBearingDegrees: Double,
         distanceYards: Int,
-        trajectoryMultiplier: Double = 1.0
+        trajectoryMultiplier: Double = 1.0,
+        temperatureF: Int = 70
     ): WindEffect {
         val relAngle = relativeWindAngle(windFromDegrees, shotBearingDegrees)
         val windMph = windSpeedKmh * 0.621371
@@ -165,6 +185,7 @@ object WindCalculator {
         val carryEffect = estimateWindEffectYards(
             windSpeedKmh, relAngle, distanceYards, trajectoryMultiplier
         )
+        val tempEffect = estimateTemperatureEffectYards(distanceYards, temperatureF)
         val lateralEffect = estimateLateralDisplacementYards(
             windSpeedKmh, relAngle, distanceYards, trajectoryMultiplier
         )
@@ -177,6 +198,8 @@ object WindCalculator {
             headwindComponentMph = -along, // positive = headwind
             crosswindComponentMph = cross,
             carryEffectYards = carryEffect,
+            temperatureEffectYards = tempEffect,
+            totalWeatherEffectYards = carryEffect + tempEffect,
             lateralDisplacementYards = lateralEffect,
             label = label,
             colorCategory = colorCat

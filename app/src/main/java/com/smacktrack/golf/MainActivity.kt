@@ -32,6 +32,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -183,6 +184,22 @@ fun SmackTrackApp(viewModel: ShotTrackerViewModel) {
                     }
                     IconButton(
                         onClick = {
+                            try {
+                                context.startActivity(
+                                    Intent(Intent.ACTION_VIEW, Uri.parse(DONATE_URL))
+                                )
+                            } catch (_: android.content.ActivityNotFoundException) { }
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.FavoriteBorder,
+                            contentDescription = "Buy me a coffee",
+                            tint = TextTertiary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                    IconButton(
+                        onClick = {
                             showSettings = !showSettings
                         }
                     ) {
@@ -252,6 +269,13 @@ fun SmackTrackApp(viewModel: ShotTrackerViewModel) {
                 onSignIn = { viewModel.signInWithGoogle(webClientId) },
                 onSignOut = { viewModel.signOut() },
                 onClearError = { viewModel.clearSignInError() },
+                onDonate = {
+                    try {
+                        context.startActivity(
+                            Intent(Intent.ACTION_VIEW, Uri.parse(DONATE_URL))
+                        )
+                    } catch (_: android.content.ActivityNotFoundException) { }
+                },
                 modifier = Modifier.padding(innerPadding)
             )
         } else {
@@ -266,15 +290,6 @@ fun SmackTrackApp(viewModel: ShotTrackerViewModel) {
                     onWindDirectionChange = { viewModel.adjustWindDirection(45) },
                     onWindSpeedChange = viewModel::adjustWindSpeed,
                     onDeleteShot = viewModel::deleteShot,
-                    onDonate = {
-                        try {
-                            context.startActivity(
-                                Intent(Intent.ACTION_VIEW, Uri.parse(DONATE_URL))
-                            )
-                        } catch (_: android.content.ActivityNotFoundException) {
-                            // No browser installed — silently ignore
-                        }
-                    },
                     modifier = Modifier.padding(innerPadding)
                 )
                 1 -> AnalyticsScreen(
