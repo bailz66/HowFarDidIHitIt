@@ -21,10 +21,21 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -55,10 +66,13 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -73,9 +87,11 @@ import com.smacktrack.golf.ui.screen.HistoryScreen
 import com.smacktrack.golf.ui.screen.SettingsScreen
 import com.smacktrack.golf.ui.screen.ShotTrackerScreen
 import com.smacktrack.golf.ui.theme.DarkGreen
+import com.smacktrack.golf.ui.theme.PoppinsFamily
 import com.smacktrack.golf.ui.theme.SmackTrackTheme
 import com.smacktrack.golf.ui.theme.LightGreenTint
 import com.smacktrack.golf.ui.theme.TextTertiary
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
     private val viewModel by viewModels<ShotTrackerViewModel>()
@@ -118,8 +134,10 @@ fun SmackTrackApp(viewModel: ShotTrackerViewModel) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     var selectedTab by remember { mutableIntStateOf(0) }
+    var previousTab by remember { mutableIntStateOf(0) }
     var showSettings by remember { mutableStateOf(false) }
     var permissionRequested by remember { mutableStateOf(false) }
+    var splashFinished by remember { mutableStateOf(false) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -226,7 +244,10 @@ fun SmackTrackApp(viewModel: ShotTrackerViewModel) {
                     navItems.forEachIndexed { index, item ->
                         NavigationBarItem(
                             selected = selectedTab == index,
-                            onClick = { selectedTab = index },
+                            onClick = {
+                                previousTab = selectedTab
+                                selectedTab = index
+                            },
                             icon = { Icon(item.icon, contentDescription = item.label) },
                             label = {
                                 Text(
@@ -279,30 +300,137 @@ fun SmackTrackApp(viewModel: ShotTrackerViewModel) {
                 modifier = Modifier.padding(innerPadding)
             )
         } else {
-            when (selectedTab) {
-                0 -> ShotTrackerScreen(
-                    uiState = uiState,
-                    onClubSelected = viewModel::selectClub,
-                    onMarkStart = viewModel::markStart,
-                    onMarkEnd = viewModel::markEnd,
-                    onNextShot = viewModel::nextShot,
-                    onReset = viewModel::reset,
-                    onWindDirectionChange = { viewModel.adjustWindDirection(45) },
-                    onWindSpeedChange = viewModel::adjustWindSpeed,
-                    onDeleteShot = viewModel::deleteShot,
-                    modifier = Modifier.padding(innerPadding)
+            val goingForward = selectedTab >= previousTab
+            AnimatedContent(
+                targetState = selectedTab,
+                transitionSpec = {
+                    val slideDir = if (goingForward) 1 else -1
+                    (fadeIn(tween(250)) + slideInHorizontally(tween(300)) { it / 6 * slideDir })
+                        .togetherWith(
+                            fadeOut(tween(250)) + slideOutHorizontally(tween(300)) { -it / 6 * slideDir }
+                        )
+                },
+                modifier = Modifier.padding(innerPadding),
+                label = "tabTransition"
+            ) { tab ->
+                when (tab) {
+                    0 -> ShotTrackerScreen(
+                        uiState = uiState,
+                        onClubSelected = viewModel::selectClub,
+                        onMarkStart = viewModel::markStart,
+                        onMarkEnd = viewModel::markEnd,
+                        onNextShot = viewModel::nextShot,
+                        onReset = viewModel::reset,
+                        onWindDirectionChange = { viewModel.adjustWindDirection(45) },
+                        onWindSpeedChange = viewModel::adjustWindSpeed,
+                        onDeleteShot = viewModel::deleteShot,
+                        animateEntrance = splashFinished
+                    )
+                    1 -> AnalyticsScreen(
+                        shotHistory = uiState.shotHistory,
+                        settings = uiState.settings,
+                        onDeleteShot = viewModel::deleteShot
+                    )
+                    else -> HistoryScreen(
+                        shotHistory = uiState.shotHistory,
+                        settings = uiState.settings,
+                        onDeleteShot = viewModel::deleteShot
+                    )
+                }
+            }
+        }
+    }
+
+    // Splash overlay on top of everything
+    SplashOverlay(onFinished = { splashFinished = true })
+}
+
+// ── Splash Overlay ──────────────────────────────────────────────────────────
+
+@Composable
+private fun SplashOverlay(onFinished: () -> Unit) {
+    var logoAlpha by remember { mutableStateOf(0f) }
+    var logoScale by remember { mutableStateOf(0.7f) }
+    var textAlpha by remember { mutableStateOf(0f) }
+    var textOffsetY by remember { mutableStateOf(20f) }
+    var overlayAlpha by remember { mutableStateOf(1f) }
+    var overlayScale by remember { mutableStateOf(1f) }
+    var finished by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        // Phase 1: Logo fades in + spring-scales (0-400ms)
+        val logoSteps = 16
+        for (i in 1..logoSteps) {
+            val progress = i.toFloat() / logoSteps
+            logoAlpha = progress
+            logoScale = 0.7f + 0.3f * progress + 0.05f * kotlin.math.sin(progress * Math.PI.toFloat())
+            delay(25)
+        }
+        logoScale = 1f
+        logoAlpha = 1f
+
+        // Phase 2: Text slides up + fades in (400-800ms)
+        val textSteps = 16
+        for (i in 1..textSteps) {
+            val progress = i.toFloat() / textSteps
+            textAlpha = progress
+            textOffsetY = 20f * (1f - progress)
+            delay(25)
+        }
+        textAlpha = 1f
+        textOffsetY = 0f
+
+        // Phase 3: Hold for brand recognition (800-1000ms)
+        delay(200)
+
+        // Phase 4: Overlay fades out + subtle scale-up (1000-1400ms)
+        val exitSteps = 16
+        for (i in 1..exitSteps) {
+            val progress = i.toFloat() / exitSteps
+            overlayAlpha = 1f - progress
+            overlayScale = 1f + 0.03f * progress
+            delay(25)
+        }
+
+        finished = true
+        onFinished()
+    }
+
+    if (!finished) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    alpha = overlayAlpha
+                    scaleX = overlayScale
+                    scaleY = overlayScale
+                }
+                .background(DarkGreen),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Image(
+                    painter = painterResource(R.drawable.ic_launcher_foreground),
+                    contentDescription = "SmackTrack logo",
+                    modifier = Modifier
+                        .size(120.dp)
+                        .graphicsLayer {
+                            alpha = logoAlpha
+                            scaleX = logoScale
+                            scaleY = logoScale
+                        }
                 )
-                1 -> AnalyticsScreen(
-                    shotHistory = uiState.shotHistory,
-                    settings = uiState.settings,
-                    onDeleteShot = viewModel::deleteShot,
-                    modifier = Modifier.padding(innerPadding)
-                )
-                2 -> HistoryScreen(
-                    shotHistory = uiState.shotHistory,
-                    settings = uiState.settings,
-                    onDeleteShot = viewModel::deleteShot,
-                    modifier = Modifier.padding(innerPadding)
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = "SmackTrack",
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = PoppinsFamily,
+                    color = Color.White,
+                    modifier = Modifier.graphicsLayer {
+                        alpha = textAlpha
+                        translationY = textOffsetY
+                    }
                 )
             }
         }

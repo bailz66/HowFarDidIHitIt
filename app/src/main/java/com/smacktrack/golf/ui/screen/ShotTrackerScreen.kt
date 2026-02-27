@@ -67,6 +67,7 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -132,6 +133,7 @@ fun ShotTrackerScreen(
     onWindDirectionChange: () -> Unit = {},
     onWindSpeedChange: (Double) -> Unit = {},
     onDeleteShot: (Int) -> Unit = {},
+    animateEntrance: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val settings = uiState.settings
@@ -151,7 +153,8 @@ fun ShotTrackerScreen(
                 shotHistorySize = uiState.shotHistory.size,
                 settings = settings,
                 onStart = onMarkStart,
-                onDeleteShot = onDeleteShot
+                onDeleteShot = onDeleteShot,
+                animateEntrance = animateEntrance
             )
             ShotPhase.CALIBRATING_START -> CalibratingContent(label = "Locking position")
             ShotPhase.WALKING -> {
@@ -191,9 +194,61 @@ private fun ClubSelectContent(
     shotHistorySize: Int,
     settings: AppSettings,
     onStart: () -> Unit,
-    onDeleteShot: (Int) -> Unit = {}
+    onDeleteShot: (Int) -> Unit = {},
+    animateEntrance: Boolean = false
 ) {
     var pendingDeleteIndex by remember { mutableStateOf<Int?>(null) }
+
+    // Stagger entrance animation state
+    var staggerStarted by remember { mutableStateOf(false) }
+    var buttonAlpha by remember { mutableStateOf(if (animateEntrance) 0f else 1f) }
+    var buttonScale by remember { mutableStateOf(if (animateEntrance) 0.85f else 1f) }
+    var recentLabelAlpha by remember { mutableStateOf(if (animateEntrance) 0f else 1f) }
+    var recentLabelOffsetY by remember { mutableStateOf(if (animateEntrance) 12f else 0f) }
+    var shotAlphas by remember { mutableStateOf(List(3) { if (animateEntrance) 0f else 1f }) }
+    var shotOffsetsY by remember { mutableStateOf(List(3) { if (animateEntrance) 16f else 0f }) }
+
+    LaunchedEffect(animateEntrance) {
+        if (!animateEntrance || staggerStarted) return@LaunchedEffect
+        staggerStarted = true
+
+        // SMACK button: scale 0.85→1.0 (spring-like) + alpha 0→1 (0ms delay)
+        val btnSteps = 14
+        for (i in 1..btnSteps) {
+            val p = i.toFloat() / btnSteps
+            buttonAlpha = p
+            buttonScale = 0.85f + 0.15f * p + 0.04f * kotlin.math.sin(p * Math.PI.toFloat())
+            delay(20)
+        }
+        buttonAlpha = 1f
+        buttonScale = 1f
+
+        // "RECENT" label (200ms delay from button start, ~80ms after button finishes)
+        delay(80)
+        val labelSteps = 10
+        for (i in 1..labelSteps) {
+            val p = i.toFloat() / labelSteps
+            recentLabelAlpha = p
+            recentLabelOffsetY = 12f * (1f - p)
+            delay(15)
+        }
+        recentLabelAlpha = 1f
+        recentLabelOffsetY = 0f
+
+        // Recent shot rows — stagger each by ~100ms
+        for (row in 0 until minOf(recentShots.size, 3)) {
+            delay(100)
+            val rowSteps = 10
+            for (i in 1..rowSteps) {
+                val p = i.toFloat() / rowSteps
+                shotAlphas = shotAlphas.toMutableList().also { it[row] = p }
+                shotOffsetsY = shotOffsetsY.toMutableList().also { it[row] = 16f * (1f - p) }
+                delay(15)
+            }
+            shotAlphas = shotAlphas.toMutableList().also { it[row] = 1f }
+            shotOffsetsY = shotOffsetsY.toMutableList().also { it[row] = 0f }
+        }
+    }
 
     pendingDeleteIndex?.let { index ->
         AlertDialog(
@@ -220,11 +275,19 @@ private fun ClubSelectContent(
     ) {
         Spacer(Modifier.weight(1f))
 
-        EpicButton(
-            text = "SMACK",
-            enabled = true,
-            pulsate = true
-        ) { onStart() }
+        Box(
+            modifier = Modifier.graphicsLayer {
+                alpha = buttonAlpha
+                scaleX = buttonScale
+                scaleY = buttonScale
+            }
+        ) {
+            EpicButton(
+                text = "SMACK",
+                enabled = true,
+                pulsate = true
+            ) { onStart() }
+        }
 
         Spacer(Modifier.weight(1f))
 
@@ -235,18 +298,29 @@ private fun ClubSelectContent(
                 style = MaterialTheme.typography.labelMedium,
                 color = TextSecondary,
                 fontWeight = FontWeight.SemiBold,
-                letterSpacing = 1.5.sp
+                letterSpacing = 1.5.sp,
+                modifier = Modifier.graphicsLayer {
+                    alpha = recentLabelAlpha
+                    translationY = recentLabelOffsetY
+                }
             )
 
             Spacer(Modifier.height(10.dp))
 
             recentShots.forEachIndexed { displayIndex, shot ->
                 val actualIndex = shotHistorySize - 1 - displayIndex
-                RecentShotRow(
-                    shot = shot,
-                    settings = settings,
-                    onDelete = { pendingDeleteIndex = actualIndex }
-                )
+                Box(
+                    modifier = Modifier.graphicsLayer {
+                        alpha = shotAlphas.getOrElse(displayIndex) { 1f }
+                        translationY = shotOffsetsY.getOrElse(displayIndex) { 0f }
+                    }
+                ) {
+                    RecentShotRow(
+                        shot = shot,
+                        settings = settings,
+                        onDelete = { pendingDeleteIndex = actualIndex }
+                    )
+                }
                 Spacer(Modifier.height(8.dp))
             }
         }
