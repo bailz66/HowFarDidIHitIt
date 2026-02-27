@@ -82,6 +82,9 @@ import com.smacktrack.golf.ui.theme.TextSecondary
 import com.smacktrack.golf.ui.theme.TextTertiary
 import com.smacktrack.golf.ui.theme.clubChipColor
 import com.smacktrack.golf.ui.theme.windCategoryColor
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 private val cardBorderColor = Color(0xFFE0E2DC)
 
@@ -762,6 +765,54 @@ private fun ClubDetailView(
             }
         }
 
+        // Personal Best card — shown when 3+ shots exist
+        if (distances.size >= 3) {
+            item {
+                val pbIndex = distances.indexOf(long)
+                val pbShot = sortedShots.getOrNull(pbIndex)
+                val pbDate = pbShot?.let {
+                    SimpleDateFormat("MMM d, yyyy", Locale.getDefault()).format(Date(it.timestampMs))
+                } ?: ""
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(Color.White)
+                        .border(1.dp, cardBorderColor, RoundedCornerShape(14.dp))
+                ) {
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        // Gold left border accent
+                        Box(
+                            modifier = Modifier
+                                .width(4.dp)
+                                .height(64.dp)
+                                .background(Color(0xFFFFD600))
+                        )
+                        Column(
+                            modifier = Modifier
+                                .padding(horizontal = 14.dp, vertical = 12.dp)
+                        ) {
+                            Text(
+                                text = "ALL-TIME BEST",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFFFAB00),
+                                letterSpacing = 1.5.sp
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = "$long $unitLabel — $pbDate",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
         // Consistency dot strip
         if (distances.size >= 2) {
             item {
@@ -872,10 +923,9 @@ private fun DetailStat(label: String, value: Int, unit: String) {
             letterSpacing = 1.5.sp
         )
         Spacer(Modifier.height(2.dp))
-        Text(
-            text = "$value",
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
+        AnimatedCounter(
+            targetValue = value,
+            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
             color = TextPrimary
         )
         Text(

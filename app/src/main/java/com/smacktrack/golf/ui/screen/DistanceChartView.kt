@@ -20,7 +20,14 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -283,6 +290,15 @@ private fun ClubRangeRow(
     unitLabel: String,
     weatherAdjusted: Boolean
 ) {
+    // Bar grow animation
+    var animateTarget by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { animateTarget = true }
+    val growFraction by animateFloatAsState(
+        targetValue = if (animateTarget) 1f else 0f,
+        animationSpec = tween(500),
+        label = "rangeBarGrow"
+    )
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -334,9 +350,9 @@ private fun ClubRangeRow(
                 )
 
                 if (globalMax > 0) {
-                    val minX = w * bar.min.toFloat() / globalMax
-                    val maxX = w * bar.max.toFloat() / globalMax
-                    val avgX = w * bar.avg.toFloat() / globalMax
+                    val minX = w * bar.min.toFloat() / globalMax * growFraction
+                    val maxX = w * bar.max.toFloat() / globalMax * growFraction
+                    val avgX = w * bar.avg.toFloat() / globalMax * growFraction
                     val barWidth = (maxX - minX).coerceAtLeast(4.dp.toPx())
 
                     // Colored range bar (min to max)
@@ -366,7 +382,7 @@ private fun ClubRangeRow(
 
                     // Weather-adjusted average marker — hollow diamond
                     if (weatherAdjusted && bar.weatherAdjAvg != null) {
-                        val waX = w * bar.weatherAdjAvg.toFloat() / globalMax
+                        val waX = w * bar.weatherAdjAvg.toFloat() / globalMax * growFraction
                         val diamondSize = 5.dp.toPx()
                         val diamondPath = Path().apply {
                             moveTo(waX, centerY - diamondSize)

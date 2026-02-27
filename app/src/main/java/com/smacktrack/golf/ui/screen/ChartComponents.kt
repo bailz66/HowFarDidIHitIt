@@ -15,9 +15,18 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -25,6 +34,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -39,6 +49,31 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.sqrt
+
+// ── AnimatedCounter ─────────────────────────────────────────────────────────
+
+@Composable
+fun AnimatedCounter(
+    targetValue: Int,
+    style: TextStyle,
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    val animatedValue = remember { Animatable(0f) }
+    LaunchedEffect(targetValue) {
+        animatedValue.snapTo(0f)
+        animatedValue.animateTo(
+            targetValue.toFloat(),
+            animationSpec = tween(600, easing = FastOutSlowInEasing)
+        )
+    }
+    Text(
+        text = "${animatedValue.value.toInt()}",
+        style = style,
+        color = color,
+        modifier = modifier
+    )
+}
 
 // ── Session grouping ────────────────────────────────────────────────────────
 
@@ -120,6 +155,12 @@ fun DistanceSparkline(
     val avgDashColor = Color(0xFF9E9E9E)
     val dotColor = lineColor
 
+    // Draw-in animation: progress 0→1
+    val progress = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        progress.animateTo(1f, animationSpec = tween(800))
+    }
+
     Canvas(
         modifier = modifier
             .fillMaxWidth()
@@ -154,13 +195,15 @@ fun DistanceSparkline(
             Offset(x, y)
         }
 
-        for (i in 0 until points.size - 1) {
+        val visibleSegments = (points.size * progress.value).toInt()
+        for (i in 0 until (points.size - 1).coerceAtMost(visibleSegments)) {
             drawLine(lineColor, points[i], points[i + 1], strokeWidth = 2.5f, cap = StrokeCap.Round)
         }
 
-        points.forEach { pt ->
-            drawCircle(Color.White, radius = 5f, center = pt)
-            drawCircle(dotColor, radius = 3.5f, center = pt)
+        points.forEachIndexed { i, pt ->
+            val dotAlpha = ((progress.value * points.size) - i).coerceIn(0f, 1f)
+            drawCircle(Color.White.copy(alpha = dotAlpha), radius = 5f, center = pt)
+            drawCircle(dotColor.copy(alpha = dotAlpha), radius = 3.5f, center = pt)
         }
     }
 }
@@ -218,11 +261,21 @@ fun BagSummaryChart(
     val sorted = clubs.sortedByDescending { it.avg }
     val maxAvg = sorted.first().avg.toFloat().coerceAtLeast(1f)
 
+    // Bar grow animation
+    var animateTarget by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { animateTarget = true }
+
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         sorted.forEachIndexed { index, club ->
+            val animatedFraction by animateFloatAsState(
+                targetValue = if (animateTarget) club.avg / maxAvg else 0f,
+                animationSpec = tween(600, delayMillis = index * 80),
+                label = "barGrow$index"
+            )
+
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth()
@@ -248,11 +301,11 @@ fun BagSummaryChart(
 
                 Spacer(Modifier.width(8.dp))
 
-                // Horizontal bar
+                // Horizontal bar — animated grow
                 Box(modifier = Modifier.weight(1f)) {
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth(fraction = club.avg / maxAvg)
+                            .fillMaxWidth(fraction = animatedFraction)
                             .height(14.dp)
                             .clip(RoundedCornerShape(4.dp))
                             .background(club.chipColor.copy(alpha = 0.3f))
@@ -307,6 +360,12 @@ fun ShotScatterStrip(
     val gridColor = Color(0xFFBDBDBD)
     val avgDashColor = Color(0xFF9E9E9E)
 
+    // Stagger-in animation
+    val scatterProgress = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        scatterProgress.animateTo(1f, animationSpec = tween(600))
+    }
+
     Column(modifier = modifier.fillMaxWidth()) {
         Canvas(
             modifier = Modifier
@@ -336,8 +395,9 @@ fun ShotScatterStrip(
                 pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 6f))
             )
 
-            // Dots with deterministic vertical jitter
+            // Dots with deterministic vertical jitter — staggered entrance
             distances.forEachIndexed { i, dist ->
+                val dotAlpha = ((scatterProgress.value * distances.size) - i).coerceIn(0f, 1f)
                 val x = padH + (w - 2 * padH) * ((dist - minDist) / range)
                 // Deterministic jitter based on index to avoid overlap
                 val jitter = ((i * 7 + dist * 3) % 11 - 5) / 5f * (h * 0.28f)
@@ -345,13 +405,13 @@ fun ShotScatterStrip(
 
                 // White outline
                 drawCircle(
-                    color = Color.White,
+                    color = Color.White.copy(alpha = dotAlpha),
                     radius = 7.dp.toPx() / 2f,
                     center = Offset(x, y)
                 )
                 // Filled dot
                 drawCircle(
-                    color = dotColor,
+                    color = dotColor.copy(alpha = dotAlpha),
                     radius = 5.dp.toPx() / 2f,
                     center = Offset(x, y)
                 )
