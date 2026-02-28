@@ -65,7 +65,7 @@ fun AchievementGallery(
                 val ts = unlockedAchievements[achievement.name] ?: 0L
                 AchievementRow(
                     achievement = achievement,
-                    dateText = dateFormat.format(Date(ts)),
+                    dateText = if (ts > 0L) dateFormat.format(Date(ts)) else null,
                     isUnlocked = true
                 )
             }

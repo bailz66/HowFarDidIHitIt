@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
 import com.smacktrack.golf.domain.Achievement
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -81,7 +82,8 @@ class AchievementRepository(context: Context) {
         local.forEach { (name, ts) ->
             val ref = firestore.collection("users").document(currentUid)
                 .collection("achievements").document(name)
-            batch.set(ref, mapOf("name" to name, "unlockedAt" to ts))
+            // Merge so we don't overwrite achievements earned on other devices
+            batch.set(ref, mapOf("name" to name, "unlockedAt" to ts), SetOptions.merge())
         }
         batch.commit().await()
     }

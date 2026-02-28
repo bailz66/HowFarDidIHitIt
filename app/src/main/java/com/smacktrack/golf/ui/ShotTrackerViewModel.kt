@@ -35,6 +35,7 @@ import com.smacktrack.golf.network.celsiusToFahrenheit
 import com.smacktrack.golf.network.degreesToCompass
 import com.smacktrack.golf.network.wmoCodeToLabel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -169,11 +170,15 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
                 }
                 if (user != null) {
                     toast("Signed in as ${user.email}")
-                    // Migrate local data on first sign-in
+                    // Migrate local data on first sign-in.
+                    // Use NonCancellable so a rapid auth re-emission can't leave
+                    // migration half-done (data uploaded but local not yet cleared).
                     _uiState.update { it.copy(syncStatus = SyncStatus.SYNCING) }
                     try {
-                        repository.migrateLocalToFirestore()
-                        achievementRepository.migrateLocalToFirestore()
+                        kotlinx.coroutines.withContext(NonCancellable) {
+                            repository.migrateLocalToFirestore()
+                            achievementRepository.migrateLocalToFirestore()
+                        }
                         toast("Local data migrated to cloud")
                         _uiState.update { it.copy(syncStatus = SyncStatus.SYNCED) }
                     } catch (e: Exception) {
@@ -555,6 +560,7 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
 
     fun adjustWindDirection(deltaDegrees: Int) {
         val capturedUid = repository.snapshotUid()
+        var updatedResult: ShotResult? = null
         _uiState.update { state ->
             val result = state.shotResult ?: return@update state
             val newDeg = (result.windDirectionDegrees + deltaDegrees + 360) % 360
@@ -565,17 +571,18 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
             val history = state.shotHistory.toMutableList()
             val idx = history.indexOfFirst { it.timestampMs == result.timestampMs }
             if (idx >= 0) history[idx] = updated
+            updatedResult = updated
             state.copy(shotResult = updated, shotHistory = history)
         }
         persistShots()
-        val result = _uiState.value.shotResult
-        if (result != null) {
+        updatedResult?.let { result ->
             firestoreSync { repository.updateShot(result, forUid = capturedUid) }
         }
     }
 
     fun adjustWindSpeed(deltaKmh: Double) {
         val capturedUid = repository.snapshotUid()
+        var updatedResult: ShotResult? = null
         _uiState.update { state ->
             val result = state.shotResult ?: return@update state
             val updated = result.copy(
@@ -584,11 +591,11 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
             val history = state.shotHistory.toMutableList()
             val idx = history.indexOfFirst { it.timestampMs == result.timestampMs }
             if (idx >= 0) history[idx] = updated
+            updatedResult = updated
             state.copy(shotResult = updated, shotHistory = history)
         }
         persistShots()
-        val result = _uiState.value.shotResult
-        if (result != null) {
+        updatedResult?.let { result ->
             firestoreSync { repository.updateShot(result, forUid = capturedUid) }
         }
     }
@@ -609,6 +616,13 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
 
     fun signOut() {
         val auth = authManager ?: return
+        // Snapshot current Firestore-backed data to local storage BEFORE
+        // cancelling listeners, so sign-out doesn't lose shot history
+        // (migrateLocalToFirestore clears local prefs after upload).
+        val currentState = _uiState.value
+        repository.saveShots(currentState.shotHistory)
+        repository.saveSettings(currentState.settings)
+        achievementRepository.saveUnlocked(currentState.unlockedAchievements)
         // Cancel Firestore listeners BEFORE signing out to prevent stale data
         // from being written to SharedPrefs during the race window
         shotsCollectionJob?.cancel()
@@ -616,7 +630,7 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
         achievementsCollectionJob?.cancel()
         viewModelScope.launch {
             auth.signOut()
-            // Reload local data after sign-out
+            // Reload local data after sign-out (now populated from snapshot above)
             val localShots = repository.loadShots()
             val localSettings = repository.loadSettings()
             val localAchievements = achievementRepository.loadUnlocked()

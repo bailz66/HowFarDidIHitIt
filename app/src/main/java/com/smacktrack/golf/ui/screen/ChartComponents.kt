@@ -165,13 +165,14 @@ fun computeSessionSummary(shots: List<ShotResult>, distanceUnit: DistanceUnit): 
 
 /**
  * Returns the most recent active session if the last shot was within 30 minutes of now.
+ * Only groups shots when needed — checks the most recent shot timestamp first.
  */
 fun currentActiveSession(shots: List<ShotResult>): Session? {
     if (shots.isEmpty()) return null
+    val lastShotTime = shots.maxOf { it.timestampMs }
+    if (System.currentTimeMillis() - lastShotTime > SESSION_GAP_MS) return null
     val sessions = groupIntoSessions(shots)
-    val latest = sessions.lastOrNull() ?: return null
-    val lastShotTime = latest.shots.maxOf { it.timestampMs }
-    return if (System.currentTimeMillis() - lastShotTime <= SESSION_GAP_MS) latest else null
+    return sessions.lastOrNull()
 }
 
 // ── SessionSummaryCard composable ───────────────────────────────────────────

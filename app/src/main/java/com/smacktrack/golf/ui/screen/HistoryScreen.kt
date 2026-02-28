@@ -165,7 +165,7 @@ fun HistoryScreen(
                 ShotHistoryCard(
                     shot = shot,
                     settings = settings,
-                    onDelete = if (actualIndex >= 0) {{ pendingDeleteIndex = actualIndex }} else {{}},
+                    onDelete = if (actualIndex >= 0) {{ pendingDeleteIndex = actualIndex }} else null,
                     onClick = { onShotClicked(shot) }
                 )
             }
@@ -184,7 +184,7 @@ fun HistoryScreen(
 }
 
 @Composable
-private fun ShotHistoryCard(shot: ShotResult, settings: AppSettings, onDelete: () -> Unit = {}, onClick: () -> Unit = {}) {
+private fun ShotHistoryCard(shot: ShotResult, settings: AppSettings, onDelete: (() -> Unit)? = null, onClick: () -> Unit = {}) {
     val distance = shot.primaryDistance(settings.distanceUnit)
     val distLabel = shot.shortUnitLabel(settings.distanceUnit)
 
@@ -247,13 +247,15 @@ private fun ShotHistoryCard(shot: ShotResult, settings: AppSettings, onDelete: (
                     color = TextTertiary
                 )
             }
-            IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
-                Icon(
-                    imageVector = Icons.Default.Delete,
-                    contentDescription = "Delete shot",
-                    tint = TextTertiary,
-                    modifier = Modifier.size(20.dp)
-                )
+            if (onDelete != null) {
+                IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "Delete shot",
+                        tint = TextTertiary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
         }
     }
