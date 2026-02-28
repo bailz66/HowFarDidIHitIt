@@ -90,7 +90,7 @@ class WeatherServiceParseTest {
     }
 
     @Test
-    fun `returns null for missing fields in current`() {
+    fun `returns defaults for missing fields in current`() {
         val json = """
         {
             "current": {
@@ -99,7 +99,13 @@ class WeatherServiceParseTest {
         }
         """.trimIndent()
 
-        assertNull(WeatherService.parseWeatherJson(json))
+        val result = WeatherService.parseWeatherJson(json)
+
+        assertNotNull(result)
+        assertEquals(20.0, result!!.temperatureCelsius, 0.01)
+        assertEquals(-1, result.weatherCode)
+        assertEquals(0.0, result.windSpeedKmh, 0.01)
+        assertEquals(0, result.windDirectionDegrees)
     }
 
     @Test

@@ -16,9 +16,12 @@ import android.app.Application
 import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.smacktrack.golf.data.AchievementRepository
 import com.smacktrack.golf.data.AuthManager
 import com.smacktrack.golf.data.ShotRepository
+import com.smacktrack.golf.domain.Achievement
 import com.smacktrack.golf.domain.Club
+import com.smacktrack.golf.domain.checkAchievements
 import com.smacktrack.golf.domain.GpsCoordinate
 import com.smacktrack.golf.location.GpsSample
 import com.smacktrack.golf.location.LocationProvider
@@ -108,12 +111,15 @@ data class ShotTrackerUiState(
     val userEmail: String? = null,
     val isSignedIn: Boolean = false,
     val signInError: String? = null,
-    val syncStatus: SyncStatus = SyncStatus.IDLE
+    val syncStatus: SyncStatus = SyncStatus.IDLE,
+    val unlockedAchievements: Map<String, Long> = emptyMap(),
+    val newlyUnlockedAchievements: List<Achievement> = emptyList()
 )
 
 class ShotTrackerViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = ShotRepository(application)
+    private val achievementRepository = AchievementRepository(application)
     var authManager: AuthManager? = null
         set(value) {
             field?.cleanup()
@@ -132,13 +138,21 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
 
     private var shotsCollectionJob: Job? = null
     private var settingsCollectionJob: Job? = null
+    private var achievementsCollectionJob: Job? = null
     private var authObserverJob: Job? = null
     private var errorObserverJob: Job? = null
 
     init {
         val savedShots = repository.loadShots()
         val savedSettings = repository.loadSettings()
-        _uiState.update { it.copy(shotHistory = savedShots, settings = savedSettings) }
+        val savedAchievements = achievementRepository.loadUnlocked()
+        _uiState.update {
+            it.copy(
+                shotHistory = savedShots,
+                settings = savedSettings,
+                unlockedAchievements = savedAchievements
+            )
+        }
     }
 
     private fun observeAuthState() {
@@ -159,6 +173,7 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
                     _uiState.update { it.copy(syncStatus = SyncStatus.SYNCING) }
                     try {
                         repository.migrateLocalToFirestore()
+                        achievementRepository.migrateLocalToFirestore()
                         toast("Local data migrated to cloud")
                         _uiState.update { it.copy(syncStatus = SyncStatus.SYNCED) }
                     } catch (e: Exception) {
@@ -184,6 +199,7 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
     private fun subscribeToData() {
         shotsCollectionJob?.cancel()
         settingsCollectionJob?.cancel()
+        achievementsCollectionJob?.cancel()
 
         shotsCollectionJob = viewModelScope.launch {
             repository.shotsFlow().collectLatest { shots ->
@@ -196,6 +212,13 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
             repository.settingsFlow().collectLatest { settings ->
                 _uiState.update { it.copy(settings = settings) }
                 repository.saveSettings(settings)
+            }
+        }
+
+        achievementsCollectionJob = viewModelScope.launch {
+            achievementRepository.achievementsFlow().collectLatest { achievements ->
+                _uiState.update { it.copy(unlockedAchievements = achievements) }
+                achievementRepository.saveUnlocked(achievements)
             }
         }
     }
@@ -310,8 +333,17 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
             val samples = collectGpsSamples()
             val calibrated = calibrateWeighted(samples)
 
+            val snap = gpsState
             val startCoord = calibrated?.coordinate
-                ?: GpsCoordinate(gpsState.lat, gpsState.lon)
+                ?: if (snap.lat != 0.0 || snap.lon != 0.0) {
+                    GpsCoordinate(snap.lat, snap.lon)
+                } else {
+                    // No valid GPS position — abort and return to club select
+                    toast("Could not get GPS position — try again in an open area")
+                    _uiState.update { it.copy(phase = ShotPhase.CLUB_SELECT) }
+                    stopLocationUpdates()
+                    return@launch
+                }
 
             _uiState.update {
                 it.copy(
@@ -330,7 +362,10 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
         while (_uiState.value.phase == ShotPhase.WALKING) {
             delay(1000)
 
-            val currentPos = GpsCoordinate(gpsState.lat, gpsState.lon)
+            val snap = gpsState
+            if (snap.lat == 0.0 && snap.lon == 0.0) continue
+
+            val currentPos = GpsCoordinate(snap.lat, snap.lon)
             val distanceMeters = haversineMeters(startCoord, currentPos)
             val distanceYards = metersToYards(distanceMeters)
 
@@ -364,8 +399,15 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
             val samples = samplesDeferred.await()
             val calibrated = calibrateWeighted(samples)
 
+            val endSnap = gpsState
             val endCoord = calibrated?.coordinate
-                ?: GpsCoordinate(gpsState.lat, gpsState.lon)
+                ?: if (endSnap.lat != 0.0 || endSnap.lon != 0.0) {
+                    GpsCoordinate(endSnap.lat, endSnap.lon)
+                } else {
+                    // No valid GPS — fall back to start coord (0 distance shot)
+                    toast("GPS lost — distance may be inaccurate")
+                    startCoord
+                }
 
             val distanceMeters = haversineMeters(startCoord, endCoord)
             val distanceYards = metersToYards(distanceMeters)
@@ -406,9 +448,43 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
             // Persist to SharedPrefs as local backup
             persistShots()
             toast("Shot saved" + if (_uiState.value.isSignedIn) " to cloud" else " locally")
-            // Save to Firestore in background (non-blocking, with retry)
-            firestoreSync { repository.saveShot(result, forUid = capturedUid) }
+            // Save to Firestore in background (only when signed in to avoid duplicate local save)
+            if (capturedUid != null) {
+                firestoreSync { repository.saveShot(result, forUid = capturedUid) }
+            }
+
+            // Check achievements
+            val currentState = _uiState.value
+            val newAchievements = checkAchievements(
+                allShots = currentState.shotHistory,
+                newShot = result,
+                alreadyUnlocked = currentState.unlockedAchievements.keys,
+                enabledClubs = currentState.settings.enabledClubs
+            )
+            if (newAchievements.isNotEmpty()) {
+                val now = System.currentTimeMillis()
+                _uiState.update { state ->
+                    val merged = state.unlockedAchievements.toMutableMap()
+                    newAchievements.forEach { a -> merged[a.name] = now }
+                    state.copy(
+                        unlockedAchievements = merged,
+                        newlyUnlockedAchievements = newAchievements
+                    )
+                }
+                achievementRepository.saveUnlocked(_uiState.value.unlockedAchievements)
+                newAchievements.forEach { achievement ->
+                    if (capturedUid != null) {
+                        firestoreSync {
+                            achievementRepository.saveToFirestore(achievement, now, capturedUid)
+                        }
+                    }
+                }
+            }
         }
+    }
+
+    fun clearNewAchievements() {
+        _uiState.update { it.copy(newlyUnlockedAchievements = emptyList()) }
     }
 
     fun nextShot() {
@@ -487,7 +563,8 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
                 windDirectionCompass = degreesToCompass(newDeg)
             )
             val history = state.shotHistory.toMutableList()
-            if (history.isNotEmpty()) history[history.lastIndex] = updated
+            val idx = history.indexOfFirst { it.timestampMs == result.timestampMs }
+            if (idx >= 0) history[idx] = updated
             state.copy(shotResult = updated, shotHistory = history)
         }
         persistShots()
@@ -502,10 +579,11 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
         _uiState.update { state ->
             val result = state.shotResult ?: return@update state
             val updated = result.copy(
-                windSpeedKmh = (result.windSpeedKmh + deltaKmh).coerceIn(0.0, 200.0)
+                windSpeedKmh = (result.windSpeedKmh + deltaKmh).coerceIn(0.0, 100.0)
             )
             val history = state.shotHistory.toMutableList()
-            if (history.isNotEmpty()) history[history.lastIndex] = updated
+            val idx = history.indexOfFirst { it.timestampMs == result.timestampMs }
+            if (idx >= 0) history[idx] = updated
             state.copy(shotResult = updated, shotHistory = history)
         }
         persistShots()
@@ -531,12 +609,24 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
 
     fun signOut() {
         val auth = authManager ?: return
+        // Cancel Firestore listeners BEFORE signing out to prevent stale data
+        // from being written to SharedPrefs during the race window
+        shotsCollectionJob?.cancel()
+        settingsCollectionJob?.cancel()
+        achievementsCollectionJob?.cancel()
         viewModelScope.launch {
             auth.signOut()
             // Reload local data after sign-out
             val localShots = repository.loadShots()
             val localSettings = repository.loadSettings()
-            _uiState.update { it.copy(shotHistory = localShots, settings = localSettings) }
+            val localAchievements = achievementRepository.loadUnlocked()
+            _uiState.update {
+                it.copy(
+                    shotHistory = localShots,
+                    settings = localSettings,
+                    unlockedAchievements = localAchievements
+                )
+            }
         }
     }
 

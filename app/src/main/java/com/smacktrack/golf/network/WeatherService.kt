@@ -35,6 +35,11 @@ object WeatherService {
             try {
                 connection.connectTimeout = CONNECT_TIMEOUT_MS
                 connection.readTimeout = READ_TIMEOUT_MS
+                val code = connection.responseCode
+                if (code !in 200..299) {
+                    Log.e("WeatherService", "HTTP $code from Open-Meteo")
+                    return@withContext null
+                }
                 val json = connection.inputStream.bufferedReader().use { it.readText() }
                 parseWeatherJson(json)
             } catch (e: Exception) {
@@ -54,13 +59,14 @@ object WeatherService {
     internal fun parseWeatherJson(json: String): WeatherData? =
         try {
             val root = JSONObject(json)
-            val current = root.getJSONObject("current")
-            WeatherData(
-                temperatureCelsius = current.getDouble("temperature_2m"),
-                weatherCode = current.getInt("weather_code"),
-                windSpeedKmh = current.getDouble("wind_speed_10m"),
-                windDirectionDegrees = current.getInt("wind_direction_10m")
-            )
+            root.optJSONObject("current")?.let { current ->
+                WeatherData(
+                    temperatureCelsius = current.optDouble("temperature_2m", 0.0),
+                    weatherCode = current.optInt("weather_code", -1),
+                    windSpeedKmh = current.optDouble("wind_speed_10m", 0.0),
+                    windDirectionDegrees = current.optInt("wind_direction_10m", 0)
+                )
+            }
         } catch (e: Exception) {
             Log.e("WeatherService", "Failed to parse weather JSON", e)
             null

@@ -73,8 +73,10 @@ import com.smacktrack.golf.location.WindCalculator
 import com.smacktrack.golf.ui.AppSettings
 import com.smacktrack.golf.ui.DistanceUnit
 import com.smacktrack.golf.ui.ShotResult
-import com.smacktrack.golf.ui.TemperatureUnit
-import com.smacktrack.golf.ui.WindUnit
+import com.smacktrack.golf.ui.formatTemperature
+import com.smacktrack.golf.ui.formatWindSpeed
+import com.smacktrack.golf.ui.primaryDistance
+import com.smacktrack.golf.ui.shortUnitLabel
 import com.smacktrack.golf.ui.theme.ChipUnselectedBg
 import com.smacktrack.golf.ui.theme.DarkGreen
 import com.smacktrack.golf.ui.theme.TextPrimary
@@ -97,7 +99,6 @@ enum class TimePeriod(val label: String, val days: Int) {
     MONTH("30d", 30),
     QUARTER("90d", 90),
     HALF_YEAR("180d", 180),
-    YEAR("365d", 365),
     ALL("All", Int.MAX_VALUE)
 }
 
@@ -117,6 +118,7 @@ fun AnalyticsScreen(
     shotHistory: List<ShotResult>,
     settings: AppSettings,
     onDeleteShot: (Int) -> Unit = {},
+    onShotClicked: (ShotResult) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var selectedPeriod by remember { mutableStateOf(TimePeriod.ALL) }
@@ -223,6 +225,7 @@ fun AnalyticsScreen(
                     weatherAdjusted = weatherAdjusted,
                     onWeatherAdjustedChanged = { weatherAdjusted = it },
                     onDeleteShot = onDeleteShot,
+                    onShotClicked = onShotClicked,
                     onBack = { selectedClub = null }
                 )
             } else {
@@ -263,7 +266,7 @@ private fun distanceFor(shot: ShotResult, useYards: Boolean, weatherAdjusted: Bo
         trajectoryMultiplier = settings.trajectory.multiplier,
         temperatureF = shot.temperatureF
     )
-    val adjustedYards = shot.distanceYards - effect.totalWeatherEffectYards
+    val adjustedYards = (shot.distanceYards - effect.totalWeatherEffectYards).coerceAtLeast(0)
     return if (useYards) adjustedYards else (adjustedYards * 0.9144).toInt()
 }
 
@@ -610,6 +613,7 @@ private fun ClubDetailView(
     weatherAdjusted: Boolean,
     onWeatherAdjustedChanged: (Boolean) -> Unit,
     onDeleteShot: (Int) -> Unit = {},
+    onShotClicked: (ShotResult) -> Unit = {},
     onBack: () -> Unit
 ) {
     var pendingDeleteIndex by remember { mutableStateOf<Int?>(null) }
@@ -890,13 +894,14 @@ private fun ClubDetailView(
             }
             val sessionShotsReversed = session.shots.reversed()
             items(sessionShotsReversed) { shot ->
-                val actualIndex = allShots.indexOf(shot)
+                val actualIndex = allShots.indexOfFirst { it.timestampMs == shot.timestampMs }
                 ShotDetailRow(
                     shot = shot,
                     settings = settings,
                     weatherAdjusted = weatherAdjusted,
                     clubLong = long,
-                    onDelete = if (actualIndex >= 0) {{ pendingDeleteIndex = actualIndex }} else null
+                    onDelete = if (actualIndex >= 0) {{ pendingDeleteIndex = actualIndex }} else null,
+                    onClick = { onShotClicked(shot) }
                 )
             }
         }
@@ -942,11 +947,11 @@ private fun ShotDetailRow(
     settings: AppSettings,
     weatherAdjusted: Boolean,
     clubLong: Int = 0,
-    onDelete: (() -> Unit)? = null
+    onDelete: (() -> Unit)? = null,
+    onClick: () -> Unit = {}
 ) {
-    val useYards = settings.distanceUnit == DistanceUnit.YARDS
-    val rawDist = if (useYards) shot.distanceYards else shot.distanceMeters
-    val unitLabel = if (useYards) "yds" else "m"
+    val rawDist = shot.primaryDistance(settings.distanceUnit)
+    val unitLabel = shot.shortUnitLabel(settings.distanceUnit)
 
     val weatherEffect = WindCalculator.analyze(
         windSpeedKmh = shot.windSpeedKmh,
@@ -956,21 +961,9 @@ private fun ShotDetailRow(
         trajectoryMultiplier = settings.trajectory.multiplier,
         temperatureF = shot.temperatureF
     )
-    val adjustedYards = shot.distanceYards - weatherEffect.totalWeatherEffectYards
-    val adjustedDist = if (useYards) adjustedYards else (adjustedYards * 0.9144).toInt()
+    val adjustedYards = (shot.distanceYards - weatherEffect.totalWeatherEffectYards).coerceAtLeast(0)
+    val adjustedDist = if (settings.distanceUnit == DistanceUnit.YARDS) adjustedYards else (adjustedYards * 0.9144).toInt()
     val displayDist = if (weatherAdjusted) adjustedDist else rawDist
-
-    val windSpeed = if (settings.windUnit == WindUnit.KMH) {
-        "${shot.windSpeedKmh.toInt()} km/h"
-    } else {
-        "${(shot.windSpeedKmh * 0.621371).toInt()} mph"
-    }
-
-    val tempDisplay = if (settings.temperatureUnit == TemperatureUnit.FAHRENHEIT) {
-        "${shot.temperatureF}\u00B0F"
-    } else {
-        "${shot.temperatureC}\u00B0C"
-    }
 
     val windColor = windCategoryColor(weatherEffect.colorCategory)
 
@@ -979,6 +972,7 @@ private fun ShotDetailRow(
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .background(Color.White)
+            .clickable(onClick = onClick)
             .padding(12.dp)
     ) {
         Row(
@@ -988,13 +982,13 @@ private fun ShotDetailRow(
         ) {
             Column {
                 Text(
-                    text = "$tempDisplay ${shot.weatherDescription}",
+                    text = "${shot.formatTemperature(settings.temperatureUnit)} ${shot.weatherDescription}",
                     style = MaterialTheme.typography.bodySmall,
                     color = TextTertiary
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = "Wind: $windSpeed ${shot.windDirectionCompass}",
+                        text = "Wind: ${shot.formatWindSpeed(settings.windUnit)} ${shot.windDirectionCompass}",
                         style = MaterialTheme.typography.bodySmall,
                         color = TextTertiary
                     )

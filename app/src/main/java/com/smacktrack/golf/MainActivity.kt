@@ -22,7 +22,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -35,14 +35,19 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
@@ -76,22 +81,42 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import com.smacktrack.golf.data.AuthManager
+import com.smacktrack.golf.domain.Achievement
+import com.smacktrack.golf.ui.AppSettings
+import com.smacktrack.golf.ui.ShotResult
 import com.smacktrack.golf.ui.ShotTrackerViewModel
 import com.smacktrack.golf.ui.SyncStatus
+import com.smacktrack.golf.ui.percentileAmongClub
+import com.smacktrack.golf.ui.primaryDistance
+import com.smacktrack.golf.ui.primaryUnitLabel
+import com.smacktrack.golf.ui.secondaryDistance
+import com.smacktrack.golf.ui.screen.AchievementGallery
 import com.smacktrack.golf.ui.screen.AnalyticsScreen
+import com.smacktrack.golf.ui.screen.AnimatedCounter
+import com.smacktrack.golf.ui.screen.ClubBadge
+import com.smacktrack.golf.ui.screen.DistanceResult
 import com.smacktrack.golf.ui.screen.HistoryScreen
 import com.smacktrack.golf.ui.screen.SettingsScreen
+import com.smacktrack.golf.ui.screen.ShareShotButton
 import com.smacktrack.golf.ui.screen.ShotTrackerScreen
+import com.smacktrack.golf.ui.screen.WeatherAdjustedDistance
+import com.smacktrack.golf.ui.screen.WeatherWindStrip
 import com.smacktrack.golf.ui.theme.DarkGreen
 import com.smacktrack.golf.ui.theme.PoppinsFamily
 import com.smacktrack.golf.ui.theme.SmackTrackTheme
 import com.smacktrack.golf.ui.theme.LightGreenTint
+import com.smacktrack.golf.ui.theme.TextPrimary
+import com.smacktrack.golf.ui.theme.TextSecondary
 import com.smacktrack.golf.ui.theme.TextTertiary
 import kotlinx.coroutines.delay
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     private val viewModel by viewModels<ShotTrackerViewModel>()
@@ -134,10 +159,11 @@ fun SmackTrackApp(viewModel: ShotTrackerViewModel) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     var selectedTab by remember { mutableIntStateOf(0) }
-    var previousTab by remember { mutableIntStateOf(0) }
     var showSettings by remember { mutableStateOf(false) }
     var permissionRequested by remember { mutableStateOf(false) }
     var splashFinished by remember { mutableStateOf(false) }
+    var detailShot by remember { mutableStateOf<ShotResult?>(null) }
+    var showAchievements by remember { mutableStateOf(false) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -244,10 +270,7 @@ fun SmackTrackApp(viewModel: ShotTrackerViewModel) {
                     navItems.forEachIndexed { index, item ->
                         NavigationBarItem(
                             selected = selectedTab == index,
-                            onClick = {
-                                previousTab = selectedTab
-                                selectedTab = index
-                            },
+                            onClick = { selectedTab = index },
                             icon = { Icon(item.icon, contentDescription = item.label) },
                             label = {
                                 Text(
@@ -297,20 +320,24 @@ fun SmackTrackApp(viewModel: ShotTrackerViewModel) {
                         )
                     } catch (_: android.content.ActivityNotFoundException) { }
                 },
+                achievementCount = uiState.unlockedAchievements.size,
+                totalAchievements = Achievement.TOTAL,
+                onOpenAchievements = { showAchievements = true },
                 modifier = Modifier.padding(innerPadding)
             )
         } else {
-            val goingForward = selectedTab >= previousTab
             AnimatedContent(
                 targetState = selectedTab,
                 transitionSpec = {
-                    val slideDir = if (goingForward) 1 else -1
+                    val slideDir = if (targetState > initialState) 1 else -1
                     (fadeIn(tween(250)) + slideInHorizontally(tween(300)) { it / 6 * slideDir })
                         .togetherWith(
                             fadeOut(tween(250)) + slideOutHorizontally(tween(300)) { -it / 6 * slideDir }
-                        )
+                        ) using SizeTransform(clip = false)
                 },
-                modifier = Modifier.padding(innerPadding),
+                modifier = Modifier
+                    .padding(innerPadding)
+                    .fillMaxSize(),
                 label = "tabTransition"
             ) { tab ->
                 when (tab) {
@@ -324,17 +351,62 @@ fun SmackTrackApp(viewModel: ShotTrackerViewModel) {
                         onWindDirectionChange = { viewModel.adjustWindDirection(45) },
                         onWindSpeedChange = viewModel::adjustWindSpeed,
                         onDeleteShot = viewModel::deleteShot,
-                        animateEntrance = splashFinished
+                        onShotClicked = { detailShot = it },
+                        animateEntrance = splashFinished,
+                        newlyUnlockedAchievements = uiState.newlyUnlockedAchievements,
+                        onAchievementsSeen = viewModel::clearNewAchievements
                     )
                     1 -> AnalyticsScreen(
                         shotHistory = uiState.shotHistory,
                         settings = uiState.settings,
-                        onDeleteShot = viewModel::deleteShot
+                        onDeleteShot = viewModel::deleteShot,
+                        onShotClicked = { detailShot = it }
                     )
                     else -> HistoryScreen(
                         shotHistory = uiState.shotHistory,
                         settings = uiState.settings,
-                        onDeleteShot = viewModel::deleteShot
+                        onDeleteShot = viewModel::deleteShot,
+                        onShotClicked = { detailShot = it }
+                    )
+                }
+            }
+        }
+    }
+
+    // Shot detail overlay
+    detailShot?.let { shot ->
+        ShotDetailOverlay(
+            shot = shot,
+            shotHistory = uiState.shotHistory,
+            settings = uiState.settings,
+            onDismiss = { detailShot = null }
+        )
+    }
+
+    // Achievement gallery dialog
+    if (showAchievements) {
+        Dialog(onDismissRequest = { showAchievements = false }) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(500.dp)
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(Color.White)
+            ) {
+                AchievementGallery(
+                    unlockedAchievements = uiState.unlockedAchievements
+                )
+                IconButton(
+                    onClick = { showAchievements = false },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp)
+                        .size(48.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close",
+                        tint = TextTertiary
                     )
                 }
             }
@@ -343,6 +415,136 @@ fun SmackTrackApp(viewModel: ShotTrackerViewModel) {
 
     // Splash overlay on top of everything
     SplashOverlay(onFinished = { splashFinished = true })
+}
+
+// ── Shot Detail Overlay ─────────────────────────────────────────────────────
+
+@Composable
+private fun ShotDetailOverlay(
+    shot: ShotResult,
+    shotHistory: List<ShotResult>,
+    settings: AppSettings,
+    onDismiss: () -> Unit
+) {
+    val dateText = remember(shot.timestampMs) {
+        SimpleDateFormat("MMM d, yyyy 'at' h:mm a", Locale.getDefault())
+            .format(Date(shot.timestampMs))
+    }
+    val percentile = remember(shot, shotHistory, settings.distanceUnit) {
+        shot.percentileAmongClub(shotHistory, settings.distanceUnit)
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(24.dp))
+                .background(Color.White)
+        ) {
+            // Scrollable content
+            Column(
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .padding(28.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Spacer for close button clearance
+                Spacer(Modifier.height(20.dp))
+
+                ClubBadge(shot.club)
+                Spacer(Modifier.height(24.dp))
+
+                AnimatedCounter(
+                    targetValue = shot.primaryDistance(settings.distanceUnit),
+                    style = DistanceResult,
+                    color = TextPrimary
+                )
+                Text(
+                    text = shot.primaryUnitLabel(settings.distanceUnit),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = TextSecondary,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 4.sp
+                )
+                Text(
+                    text = shot.secondaryDistance(settings.distanceUnit),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextSecondary
+                )
+
+                // Celebration badge
+                CelebrationBadge(percentile)
+
+                Spacer(Modifier.height(24.dp))
+                WeatherWindStrip(shot = shot, settings = settings)
+                WeatherAdjustedDistance(shot = shot, settings = settings)
+                Spacer(Modifier.height(16.dp))
+
+                Text(
+                    text = dateText,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextTertiary
+                )
+
+                Spacer(Modifier.height(20.dp))
+                ShareShotButton(shot = shot, settings = settings, shotHistory = shotHistory)
+            }
+
+            // Close button pinned outside scroll
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(8.dp)
+                    .size(48.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Close",
+                    tint = TextTertiary
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CelebrationBadge(percentile: Float?) {
+    if (percentile == null) return
+    when {
+        percentile >= 95f -> {
+            Spacer(Modifier.height(16.dp))
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Color(0xFFFFAB00).copy(alpha = 0.12f))
+                    .padding(horizontal = 20.dp, vertical = 8.dp)
+            ) {
+                Text(
+                    text = "Absolutely Smacked!",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFFFFAB00)
+                )
+            }
+        }
+        percentile >= 80f -> {
+            Spacer(Modifier.height(16.dp))
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(DarkGreen.copy(alpha = 0.10f))
+                    .padding(horizontal = 20.dp, vertical = 8.dp)
+            ) {
+                Text(
+                    text = "Smacked!",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = DarkGreen
+                )
+            }
+        }
+    }
 }
 
 // ── Splash Overlay ──────────────────────────────────────────────────────────

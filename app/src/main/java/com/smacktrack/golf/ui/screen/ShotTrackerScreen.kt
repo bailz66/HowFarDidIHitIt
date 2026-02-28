@@ -78,9 +78,8 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Icon
-import androidx.compose.ui.platform.LocalContext
+import com.smacktrack.golf.domain.Achievement
 import com.smacktrack.golf.domain.Club
 import com.smacktrack.golf.location.WindCalculator
 import com.smacktrack.golf.ui.AppSettings
@@ -88,8 +87,13 @@ import com.smacktrack.golf.ui.DistanceUnit
 import com.smacktrack.golf.ui.ShotPhase
 import com.smacktrack.golf.ui.ShotResult
 import com.smacktrack.golf.ui.ShotTrackerUiState
-import com.smacktrack.golf.ui.TemperatureUnit
 import com.smacktrack.golf.ui.WindUnit
+import com.smacktrack.golf.ui.percentileAmongClub
+import com.smacktrack.golf.ui.primaryDistance
+import com.smacktrack.golf.ui.primaryUnitLabel
+import com.smacktrack.golf.ui.secondaryDistance
+import com.smacktrack.golf.ui.shortUnitLabel
+import com.smacktrack.golf.ui.windStrengthLabel
 import com.smacktrack.golf.ui.theme.ChipBorder
 import com.smacktrack.golf.ui.theme.ChipUnselectedBg
 import com.smacktrack.golf.ui.theme.ChipUnselectedText
@@ -100,8 +104,6 @@ import com.smacktrack.golf.ui.theme.TextSecondary
 import com.smacktrack.golf.ui.theme.TextTertiary
 import com.smacktrack.golf.ui.theme.clubChipColor
 import com.smacktrack.golf.ui.theme.windCategoryColor
-import com.smacktrack.golf.ui.share.ShareUtil
-import com.smacktrack.golf.ui.share.ShotCardRenderer
 
 // Distance number styles — Roboto with tabular figures so digits don't jump
 private val DistanceLive = TextStyle(
@@ -109,15 +111,6 @@ private val DistanceLive = TextStyle(
     fontWeight = FontWeight.Bold,
     fontSize = 96.sp,
     lineHeight = 96.sp,
-    letterSpacing = (-1).sp,
-    fontFeatureSettings = "tnum"
-)
-
-private val DistanceResult = TextStyle(
-    fontFamily = RobotoFamily,
-    fontWeight = FontWeight.Bold,
-    fontSize = 80.sp,
-    lineHeight = 80.sp,
     letterSpacing = (-1).sp,
     fontFeatureSettings = "tnum"
 )
@@ -133,7 +126,10 @@ fun ShotTrackerScreen(
     onWindDirectionChange: () -> Unit = {},
     onWindSpeedChange: (Double) -> Unit = {},
     onDeleteShot: (Int) -> Unit = {},
+    onShotClicked: (ShotResult) -> Unit = {},
     animateEntrance: Boolean = false,
+    newlyUnlockedAchievements: List<Achievement> = emptyList(),
+    onAchievementsSeen: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val settings = uiState.settings
@@ -150,10 +146,11 @@ fun ShotTrackerScreen(
         when (phase) {
             ShotPhase.CLUB_SELECT -> ClubSelectContent(
                 recentShots = uiState.shotHistory.takeLast(3).reversed(),
-                shotHistorySize = uiState.shotHistory.size,
+                shotHistory = uiState.shotHistory,
                 settings = settings,
                 onStart = onMarkStart,
                 onDeleteShot = onDeleteShot,
+                onShotClicked = onShotClicked,
                 animateEntrance = animateEntrance
             )
             ShotPhase.CALIBRATING_START -> CalibratingContent(label = "Locking position")
@@ -179,7 +176,9 @@ fun ShotTrackerScreen(
                     settings = settings,
                     onNextShot = onNextShot,
                     onWindDirectionChange = onWindDirectionChange,
-                    onWindSpeedChange = onWindSpeedChange
+                    onWindSpeedChange = onWindSpeedChange,
+                    newlyUnlockedAchievements = newlyUnlockedAchievements,
+                    onAchievementsSeen = onAchievementsSeen
                 )
             }
         }
@@ -191,10 +190,11 @@ fun ShotTrackerScreen(
 @Composable
 private fun ClubSelectContent(
     recentShots: List<ShotResult>,
-    shotHistorySize: Int,
+    shotHistory: List<ShotResult>,
     settings: AppSettings,
     onStart: () -> Unit,
     onDeleteShot: (Int) -> Unit = {},
+    onShotClicked: (ShotResult) -> Unit = {},
     animateEntrance: Boolean = false
 ) {
     var pendingDeleteIndex by remember { mutableStateOf<Int?>(null) }
@@ -266,6 +266,12 @@ private fun ClubSelectContent(
             }
         )
     }
+    // Session summary for current active session
+    val sessionSummary = remember(shotHistory, settings.distanceUnit) {
+        val activeSession = currentActiveSession(shotHistory)
+        if (activeSession != null) computeSessionSummary(activeSession.shots, settings.distanceUnit) else null
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -276,11 +282,13 @@ private fun ClubSelectContent(
         Spacer(Modifier.weight(1f))
 
         Box(
-            modifier = Modifier.graphicsLayer {
-                alpha = buttonAlpha
-                scaleX = buttonScale
-                scaleY = buttonScale
-            }
+            modifier = Modifier
+                .fillMaxWidth()
+                .graphicsLayer {
+                    alpha = buttonAlpha
+                    scaleX = buttonScale
+                    scaleY = buttonScale
+                }
         ) {
             EpicButton(
                 text = "SMACK",
@@ -290,6 +298,13 @@ private fun ClubSelectContent(
         }
 
         Spacer(Modifier.weight(1f))
+
+        // Session summary card
+        if (sessionSummary != null) {
+            val unitLabel = if (settings.distanceUnit == DistanceUnit.YARDS) "yds" else "m"
+            SessionSummaryCard(summary = sessionSummary, unitLabel = unitLabel)
+            Spacer(Modifier.height(16.dp))
+        }
 
         // Recent shots
         if (recentShots.isNotEmpty()) {
@@ -308,7 +323,7 @@ private fun ClubSelectContent(
             Spacer(Modifier.height(10.dp))
 
             recentShots.forEachIndexed { displayIndex, shot ->
-                val actualIndex = shotHistorySize - 1 - displayIndex
+                val actualIndex = shotHistory.indexOfFirst { it.timestampMs == shot.timestampMs }
                 Box(
                     modifier = Modifier.graphicsLayer {
                         alpha = shotAlphas.getOrElse(displayIndex) { 1f }
@@ -318,7 +333,8 @@ private fun ClubSelectContent(
                     RecentShotRow(
                         shot = shot,
                         settings = settings,
-                        onDelete = { pendingDeleteIndex = actualIndex }
+                        onDelete = if (actualIndex >= 0) {{ pendingDeleteIndex = actualIndex }} else null,
+                        onClick = { onShotClicked(shot) }
                     )
                 }
                 Spacer(Modifier.height(8.dp))
@@ -330,15 +346,16 @@ private fun ClubSelectContent(
 }
 
 @Composable
-private fun RecentShotRow(shot: ShotResult, settings: AppSettings, onDelete: (() -> Unit)? = null) {
-    val distance = if (settings.distanceUnit == DistanceUnit.YARDS) shot.distanceYards else shot.distanceMeters
-    val unitLabel = if (settings.distanceUnit == DistanceUnit.YARDS) "yds" else "m"
+private fun RecentShotRow(shot: ShotResult, settings: AppSettings, onDelete: (() -> Unit)? = null, onClick: () -> Unit = {}) {
+    val distance = shot.primaryDistance(settings.distanceUnit)
+    val unitLabel = shot.shortUnitLabel(settings.distanceUnit)
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
             .background(ChipUnselectedBg)
+            .clickable(onClick = onClick)
             .padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp)
     ) {
         Row(
@@ -621,22 +638,12 @@ private fun ResultContent(
     settings: AppSettings,
     onNextShot: () -> Unit,
     onWindDirectionChange: () -> Unit = {},
-    onWindSpeedChange: (Double) -> Unit = {}
+    onWindSpeedChange: (Double) -> Unit = {},
+    newlyUnlockedAchievements: List<Achievement> = emptyList(),
+    onAchievementsSeen: () -> Unit = {}
 ) {
-    val primaryDistance = if (settings.distanceUnit == DistanceUnit.YARDS) result.distanceYards else result.distanceMeters
-    val primaryUnit = if (settings.distanceUnit == DistanceUnit.YARDS) "YARDS" else "METERS"
-    val secondaryDistance = if (settings.distanceUnit == DistanceUnit.YARDS) "${result.distanceMeters}m" else "${result.distanceYards}yd"
-
-    val windSpeed = if (settings.windUnit == WindUnit.KMH) {
-        "${result.windSpeedKmh.toInt()} km/h"
-    } else {
-        "${(result.windSpeedKmh * 0.621371).toInt()} mph"
-    }
-
-    val tempDisplay = if (settings.temperatureUnit == TemperatureUnit.FAHRENHEIT) {
-        "${result.temperatureF}\u00B0F"
-    } else {
-        "${result.temperatureC}\u00B0C"
+    val percentile = remember(result, shotHistory, settings.distanceUnit) {
+        result.percentileAmongClub(shotHistory, settings.distanceUnit)
     }
 
     Column(
@@ -661,59 +668,34 @@ private fun ResultContent(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Club badge
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(clubChipColor(result.club.sortOrder))
-                        .padding(horizontal = 24.dp, vertical = 8.dp)
-                ) {
-                    Text(
-                        text = result.club.displayName,
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        letterSpacing = 1.sp
-                    )
-                }
-
+                ClubBadge(result.club)
                 Spacer(Modifier.height(24.dp))
 
-                // Distance — Roboto tabular figures, count-up animation
                 AnimatedCounter(
-                    targetValue = primaryDistance,
+                    targetValue = result.primaryDistance(settings.distanceUnit),
                     style = DistanceResult,
                     color = TextPrimary
                 )
                 Text(
-                    text = primaryUnit,
+                    text = result.primaryUnitLabel(settings.distanceUnit),
                     style = MaterialTheme.typography.labelMedium,
                     color = TextSecondary,
                     fontWeight = FontWeight.SemiBold,
                     letterSpacing = 4.sp
                 )
                 Text(
-                    text = secondaryDistance,
+                    text = result.secondaryDistance(settings.distanceUnit),
                     style = MaterialTheme.typography.bodyMedium,
                     color = TextSecondary
                 )
 
-                // Celebration for top shots with a club — animated entrance
-                val currentDistance = if (settings.distanceUnit == DistanceUnit.YARDS) result.distanceYards else result.distanceMeters
-                val priorShots = shotHistory.filter { it.club == result.club && it.timestampMs != result.timestampMs }
-                if (priorShots.size >= 5) {
-                    val beatenCount = priorShots.count { shot ->
-                        val d = if (settings.distanceUnit == DistanceUnit.YARDS) shot.distanceYards else shot.distanceMeters
-                        currentDistance >= d
-                    }
-                    val percentile = beatenCount.toFloat() / priorShots.size.toFloat() * 100f
-
+                // Celebration for top shots — animated entrance
+                if (percentile != null && percentile >= 80f) {
                     var badgeVisible by remember { mutableStateOf(false) }
                     LaunchedEffect(Unit) {
                         delay(700)
                         badgeVisible = true
                     }
-
                     when {
                         percentile >= 95f -> {
                             Spacer(Modifier.height(16.dp))
@@ -738,7 +720,7 @@ private fun ResultContent(
                                 }
                             }
                         }
-                        percentile >= 80f -> {
+                        else -> {
                             Spacer(Modifier.height(16.dp))
                             AnimatedVisibility(
                                 visible = badgeVisible,
@@ -766,128 +748,43 @@ private fun ResultContent(
 
                 Spacer(Modifier.height(24.dp))
 
-                // Weather + wind arrow strip
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(ChipUnselectedBg)
-                        .padding(16.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text(
-                                text = tempDisplay,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = TextPrimary
-                            )
-                            Text(
-                                text = result.weatherDescription,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = TextSecondary
-                            )
-                        }
-
-                        // Wind with directional arrow + effect estimate
-                        WindIndicator(
-                            windSpeedLabel = windSpeed,
-                            windCompass = result.windDirectionCompass,
-                            windDegrees = result.windDirectionDegrees,
-                            shotBearing = result.shotBearingDegrees,
-                            windSpeedKmh = result.windSpeedKmh,
-                            distanceYards = result.distanceYards,
-                            trajectoryMultiplier = settings.trajectory.multiplier,
-                            showEffect = true,
-                            onDirectionTap = onWindDirectionChange,
-                            onSpeedUp = {
-                                val delta = if (settings.windUnit == WindUnit.MPH) 1.60934 else 1.0
-                                onWindSpeedChange(delta)
-                            },
-                            onSpeedDown = {
-                                val delta = if (settings.windUnit == WindUnit.MPH) -1.60934 else -1.0
-                                onWindSpeedChange(delta)
-                            }
-                        )
+                WeatherWindStrip(
+                    shot = result,
+                    settings = settings,
+                    editable = true,
+                    onDirectionTap = onWindDirectionChange,
+                    onSpeedUp = {
+                        val delta = if (settings.windUnit == WindUnit.MPH) 1.60934 else 1.0
+                        onWindSpeedChange(delta)
+                    },
+                    onSpeedDown = {
+                        val delta = if (settings.windUnit == WindUnit.MPH) -1.60934 else -1.0
+                        onWindSpeedChange(delta)
                     }
-                }
+                )
 
-                // Weather-adjusted distance (wind + temperature)
-                if (result.windSpeedKmh > 0 || result.temperatureF != 70) {
-                    val weatherEffect = WindCalculator.analyze(
-                        windSpeedKmh = result.windSpeedKmh,
-                        windFromDegrees = result.windDirectionDegrees,
-                        shotBearingDegrees = result.shotBearingDegrees,
-                        distanceYards = result.distanceYards,
-                        trajectoryMultiplier = settings.trajectory.multiplier,
-                        temperatureF = result.temperatureF
-                    )
-                    val adjustedYards = result.distanceYards - weatherEffect.totalWeatherEffectYards
-                    val adjustedMeters = (adjustedYards * 0.9144).toInt()
-                    val adjustedDisplay = if (settings.distanceUnit == DistanceUnit.YARDS) {
-                        "$adjustedYards"
-                    } else {
-                        "$adjustedMeters"
-                    }
-                    val unitLabel = if (settings.distanceUnit == DistanceUnit.YARDS) "yds" else "m"
-                    val diff = weatherEffect.totalWeatherEffectYards
-                    val diffText = if (diff >= 0) "(+$diff)" else "($diff)"
-
-                    Spacer(Modifier.height(12.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "Weather Adjusted: $adjustedDisplay $unitLabel ",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = TextSecondary
-                        )
-                        Text(
-                            text = diffText,
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = windCategoryColor(weatherEffect.colorCategory)
-                        )
-                    }
-                }
+                WeatherAdjustedDistance(shot = result, settings = settings)
             }
         }
 
         Spacer(Modifier.height(16.dp))
+        ShareShotButton(shot = result, settings = settings, shotHistory = shotHistory)
 
-        // Share button
-        val context = LocalContext.current
-        Row(
-            modifier = Modifier
-                .clip(RoundedCornerShape(50))
-                .clickable {
-                    val bitmap = ShotCardRenderer.render(
-                        context = context,
-                        result = result,
-                        settings = settings,
-                        shotHistory = shotHistory
-                    )
-                    ShareUtil.shareShotCard(context, bitmap)
-                }
-                .padding(horizontal = 24.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Default.Share,
-                contentDescription = "Share shot",
-                tint = DarkGreen,
-                modifier = Modifier.size(20.dp)
-            )
-            Text(
-                text = "Share",
-                style = MaterialTheme.typography.labelLarge,
-                color = DarkGreen,
-                fontWeight = FontWeight.SemiBold
-            )
+        // Achievement unlock banners
+        if (newlyUnlockedAchievements.isNotEmpty()) {
+            Spacer(Modifier.height(16.dp))
+            newlyUnlockedAchievements.forEach { achievement ->
+                AchievementUnlockBanner(
+                    emoji = achievement.icon,
+                    title = achievement.title,
+                    description = achievement.description
+                )
+                Spacer(Modifier.height(8.dp))
+            }
+            LaunchedEffect(newlyUnlockedAchievements) {
+                delay(3000)
+                onAchievementsSeen()
+            }
         }
 
         Spacer(Modifier.height(16.dp))
@@ -903,19 +800,6 @@ private fun ResultContent(
 /**
  * Wind indicator: colored arrow + carry/lateral effect numbers.
  */
-/**
- * Wind strength label based on speed (km/h).
- */
-private fun windStrengthLabel(windSpeedKmh: Double): String = when {
-    windSpeedKmh < 6   -> "None"
-    windSpeedKmh < 13  -> "Very Light"
-    windSpeedKmh < 20  -> "Light"
-    windSpeedKmh < 36  -> "Medium"
-    windSpeedKmh < 50  -> "Strong"
-    windSpeedKmh < 71  -> "Very Strong"
-    else               -> "Why are you even out here?!"
-}
-
 @Composable
 fun WindIndicator(
     windSpeedLabel: String,
@@ -948,14 +832,20 @@ fun WindIndicator(
             // Speed row: optional down arrow | speed | optional up arrow
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (hasControls && onSpeedDown != null) {
-                    Icon(
-                        imageVector = Icons.Default.KeyboardArrowDown,
-                        contentDescription = "Decrease wind speed",
-                        tint = TextTertiary,
+                    Box(
                         modifier = Modifier
-                            .size(24.dp)
-                            .clickable { onSpeedDown() }
-                    )
+                            .size(40.dp)
+                            .clip(RoundedCornerShape(50))
+                            .clickable { onSpeedDown() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.KeyboardArrowDown,
+                            contentDescription = "Decrease wind speed",
+                            tint = TextTertiary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
                 }
                 Text(
                     text = windSpeedLabel,
@@ -963,14 +853,20 @@ fun WindIndicator(
                     color = TextSecondary
                 )
                 if (hasControls && onSpeedUp != null) {
-                    Icon(
-                        imageVector = Icons.Default.KeyboardArrowUp,
-                        contentDescription = "Increase wind speed",
-                        tint = TextTertiary,
+                    Box(
                         modifier = Modifier
-                            .size(24.dp)
-                            .clickable { onSpeedUp() }
-                    )
+                            .size(40.dp)
+                            .clip(RoundedCornerShape(50))
+                            .clickable { onSpeedUp() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.KeyboardArrowUp,
+                            contentDescription = "Increase wind speed",
+                            tint = TextTertiary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
                 }
             }
             // Wind strength description
@@ -1012,14 +908,20 @@ fun WindIndicator(
                 modifier = Modifier.size(32.dp)
             )
             if (onDirectionTap != null) {
-                Icon(
-                    imageVector = Icons.Default.Refresh,
-                    contentDescription = "Cycle wind direction",
-                    tint = TextTertiary,
+                Box(
                     modifier = Modifier
-                        .size(20.dp)
-                        .clickable { onDirectionTap() }
-                )
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(50))
+                        .clickable { onDirectionTap() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = "Cycle wind direction",
+                        tint = TextTertiary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
         }
     }

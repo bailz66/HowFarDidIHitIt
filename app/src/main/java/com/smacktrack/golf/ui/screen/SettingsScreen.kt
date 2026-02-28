@@ -87,6 +87,9 @@ fun SettingsScreen(
     onSignOut: () -> Unit = {},
     onClearError: () -> Unit = {},
     onDonate: () -> Unit = {},
+    achievementCount: Int = 0,
+    totalAchievements: Int = 12,
+    onOpenAchievements: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var showHowItWorks by remember { mutableStateOf(false) }
@@ -244,6 +247,41 @@ fun SettingsScreen(
                 fontWeight = FontWeight.SemiBold,
                 color = DarkGreen
             )
+        }
+
+        Spacer(Modifier.height(28.dp))
+        HorizontalDivider(color = Color(0xFFE0E2DC))
+        Spacer(Modifier.height(28.dp))
+
+        // ── Achievements ─────────────────────────────────
+        SectionHeader("ACHIEVEMENTS")
+        Spacer(Modifier.height(12.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .background(ChipUnselectedBg)
+                .clickable { onOpenAchievements() }
+                .padding(vertical = 16.dp, horizontal = 20.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "View Achievements",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = DarkGreen
+                )
+                Text(
+                    text = "$achievementCount / $totalAchievements",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = TextSecondary
+                )
+            }
         }
 
         Spacer(Modifier.height(28.dp))

@@ -48,15 +48,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.smacktrack.golf.ui.AppSettings
 import com.smacktrack.golf.ui.DistanceUnit
 import com.smacktrack.golf.ui.ShotResult
-import com.smacktrack.golf.ui.TemperatureUnit
-import com.smacktrack.golf.ui.WindUnit
-import com.smacktrack.golf.ui.share.ShareUtil
-import com.smacktrack.golf.ui.share.ShotCardRenderer
+import com.smacktrack.golf.ui.formatTemperature
+import com.smacktrack.golf.ui.formatWindSpeed
+import com.smacktrack.golf.ui.primaryDistance
+import com.smacktrack.golf.ui.shortUnitLabel
 import com.smacktrack.golf.ui.theme.DarkGreen
 import com.smacktrack.golf.ui.theme.LightGreenTint
 import com.smacktrack.golf.ui.theme.TextTertiary
@@ -66,9 +65,9 @@ fun HistoryScreen(
     shotHistory: List<ShotResult>,
     settings: AppSettings,
     onDeleteShot: (Int) -> Unit = {},
+    onShotClicked: (ShotResult) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
     var pendingDeleteIndex by remember { mutableStateOf<Int?>(null) }
 
     pendingDeleteIndex?.let { index ->
@@ -151,6 +150,15 @@ fun HistoryScreen(
                 SessionHeader(session)
             }
 
+            // Inline session summary for sessions with 3+ shots
+            val sessionSummary = computeSessionSummary(session.shots, settings.distanceUnit)
+            if (sessionSummary != null) {
+                item {
+                    val unitLabel = if (settings.distanceUnit == DistanceUnit.YARDS) "yds" else "m"
+                    SessionSummaryCard(summary = sessionSummary, unitLabel = unitLabel)
+                }
+            }
+
             val shotsReversed = session.shots.reversed()
             items(shotsReversed) { shot ->
                 val actualIndex = shotHistory.indexOfFirst { it.timestampMs == shot.timestampMs }
@@ -158,15 +166,7 @@ fun HistoryScreen(
                     shot = shot,
                     settings = settings,
                     onDelete = if (actualIndex >= 0) {{ pendingDeleteIndex = actualIndex }} else {{}},
-                    onShare = {
-                        val bitmap = ShotCardRenderer.render(
-                            context = context,
-                            result = shot,
-                            settings = settings,
-                            shotHistory = shotHistory
-                        )
-                        ShareUtil.shareShotCard(context, bitmap)
-                    }
+                    onClick = { onShotClicked(shot) }
                 )
             }
         }
@@ -184,17 +184,12 @@ fun HistoryScreen(
 }
 
 @Composable
-private fun ShotHistoryCard(shot: ShotResult, settings: AppSettings, onDelete: () -> Unit = {}, onShare: () -> Unit = {}) {
-    val distance = if (settings.distanceUnit == DistanceUnit.YARDS) shot.distanceYards else shot.distanceMeters
-    val distLabel = if (settings.distanceUnit == DistanceUnit.YARDS) "yds" else "m"
-    val windSpeed = if (settings.windUnit == WindUnit.KMH) {
-        "${shot.windSpeedKmh.toInt()} km/h"
-    } else {
-        "${(shot.windSpeedKmh * 0.621371).toInt()} mph"
-    }
+private fun ShotHistoryCard(shot: ShotResult, settings: AppSettings, onDelete: () -> Unit = {}, onClick: () -> Unit = {}) {
+    val distance = shot.primaryDistance(settings.distanceUnit)
+    val distLabel = shot.shortUnitLabel(settings.distanceUnit)
 
     Card(
-        onClick = onShare,
+        onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
@@ -221,19 +216,14 @@ private fun ShotHistoryCard(shot: ShotResult, settings: AppSettings, onDelete: (
                     )
                 }
                 Spacer(Modifier.height(6.dp))
-                val tempDisplay = if (settings.temperatureUnit == TemperatureUnit.FAHRENHEIT) {
-                    "${shot.temperatureF}\u00B0F"
-                } else {
-                    "${shot.temperatureC}\u00B0C"
-                }
                 Text(
-                    text = "$tempDisplay ${shot.weatherDescription}",
+                    text = "${shot.formatTemperature(settings.temperatureUnit)} ${shot.weatherDescription}",
                     style = MaterialTheme.typography.bodySmall,
                     color = TextTertiary
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = "Wind: $windSpeed ${shot.windDirectionCompass}",
+                        text = "Wind: ${shot.formatWindSpeed(settings.windUnit)} ${shot.windDirectionCompass}",
                         style = MaterialTheme.typography.bodySmall,
                         color = TextTertiary
                     )

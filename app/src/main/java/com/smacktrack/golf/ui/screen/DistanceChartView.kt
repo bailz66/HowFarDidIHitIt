@@ -75,7 +75,7 @@ private fun distanceFor(shot: ShotResult, useYards: Boolean, weatherAdjusted: Bo
         trajectoryMultiplier = settings.trajectory.multiplier,
         temperatureF = shot.temperatureF
     )
-    val adjustedYards = shot.distanceYards - effect.totalWeatherEffectYards
+    val adjustedYards = (shot.distanceYards - effect.totalWeatherEffectYards).coerceAtLeast(0)
     return if (useYards) adjustedYards else (adjustedYards * 0.9144).toInt()
 }
 

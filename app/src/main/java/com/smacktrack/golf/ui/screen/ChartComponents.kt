@@ -38,17 +38,42 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.smacktrack.golf.domain.Club
+import com.smacktrack.golf.location.WindCalculator
+import com.smacktrack.golf.ui.AppSettings
+import com.smacktrack.golf.ui.DistanceUnit
 import com.smacktrack.golf.ui.ShotResult
+import com.smacktrack.golf.ui.WindUnit
+import com.smacktrack.golf.ui.formatTemperature
+import com.smacktrack.golf.ui.formatWindSpeed
+import com.smacktrack.golf.ui.primaryDistance
+import com.smacktrack.golf.ui.primaryUnitLabel
+import com.smacktrack.golf.ui.secondaryDistance
+import com.smacktrack.golf.ui.shortUnitLabel
 import com.smacktrack.golf.ui.theme.ChipUnselectedBg
 import com.smacktrack.golf.ui.theme.DarkGreen
+import com.smacktrack.golf.ui.theme.RobotoFamily
 import com.smacktrack.golf.ui.theme.TextPrimary
 import com.smacktrack.golf.ui.theme.TextSecondary
 import com.smacktrack.golf.ui.theme.TextTertiary
 import com.smacktrack.golf.ui.theme.clubChipColor
+import com.smacktrack.golf.ui.theme.windCategoryColor
+import com.smacktrack.golf.ui.share.ShareUtil
+import com.smacktrack.golf.ui.share.ShotCardRenderer
+import com.smacktrack.golf.ui.windStrengthLabel
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.sqrt
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.Icon
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.border
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.scaleIn
 
 // ── AnimatedCounter ─────────────────────────────────────────────────────────
 
@@ -108,6 +133,91 @@ fun groupIntoSessions(shots: List<ShotResult>): List<Session> {
             index = idx + 1,
             dateLabel = dateFormat.format(Date(group.first().timestampMs)),
             shots = group
+        )
+    }
+}
+
+// ── Session Summary ─────────────────────────────────────────────────────────
+
+data class SessionSummary(
+    val totalShots: Int,
+    val avgDistance: Int,
+    val bestClub: Club,
+    val bestDistance: Int,
+    val clubsUsedCount: Int
+)
+
+/**
+ * Computes a summary for the given session shots. Returns null if fewer than 3 shots.
+ */
+fun computeSessionSummary(shots: List<ShotResult>, distanceUnit: DistanceUnit): SessionSummary? {
+    if (shots.size < 3) return null
+    val distances = shots.map { if (distanceUnit == DistanceUnit.YARDS) it.distanceYards else it.distanceMeters }
+    val bestIndex = distances.indices.maxBy { distances[it] }
+    return SessionSummary(
+        totalShots = shots.size,
+        avgDistance = distances.average().toInt(),
+        bestClub = shots[bestIndex].club,
+        bestDistance = distances[bestIndex],
+        clubsUsedCount = shots.map { it.club }.distinct().size
+    )
+}
+
+/**
+ * Returns the most recent active session if the last shot was within 30 minutes of now.
+ */
+fun currentActiveSession(shots: List<ShotResult>): Session? {
+    if (shots.isEmpty()) return null
+    val sessions = groupIntoSessions(shots)
+    val latest = sessions.lastOrNull() ?: return null
+    val lastShotTime = latest.shots.maxOf { it.timestampMs }
+    return if (System.currentTimeMillis() - lastShotTime <= SESSION_GAP_MS) latest else null
+}
+
+// ── SessionSummaryCard composable ───────────────────────────────────────────
+
+@Composable
+fun SessionSummaryCard(summary: SessionSummary, unitLabel: String) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(ChipUnselectedBg)
+            .padding(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            SummaryStatColumn("${summary.totalShots}", "Shots")
+            SummaryStatColumn("${summary.avgDistance}", "Avg $unitLabel")
+            SummaryStatColumn(
+                "${summary.bestDistance}",
+                "Best",
+                valueColor = DarkGreen
+            )
+            SummaryStatColumn("${summary.clubsUsedCount}", "Clubs")
+        }
+    }
+}
+
+@Composable
+private fun SummaryStatColumn(
+    value: String,
+    label: String,
+    valueColor: Color = TextPrimary
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            text = value,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = valueColor
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = TextTertiary
         )
     }
 }
@@ -499,5 +609,230 @@ fun ShowMoreButton(remainingSessions: Int, onClick: () -> Unit) {
             fontWeight = FontWeight.SemiBold,
             color = DarkGreen
         )
+    }
+}
+
+// ── Shared TextStyle ────────────────────────────────────────────────────────
+
+val DistanceResult = TextStyle(
+    fontFamily = RobotoFamily,
+    fontWeight = FontWeight.Bold,
+    fontSize = 80.sp,
+    lineHeight = 80.sp,
+    letterSpacing = (-1).sp,
+    fontFeatureSettings = "tnum"
+)
+
+// ── Club Badge ──────────────────────────────────────────────────────────────
+
+@Composable
+fun ClubBadge(club: Club) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(clubChipColor(club.sortOrder))
+            .padding(horizontal = 24.dp, vertical = 8.dp)
+    ) {
+        Text(
+            text = club.displayName,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+            color = Color.White,
+            letterSpacing = 1.sp
+        )
+    }
+}
+
+// ── Weather + Wind Strip ────────────────────────────────────────────────────
+
+@Composable
+fun WeatherWindStrip(
+    shot: ShotResult,
+    settings: AppSettings,
+    editable: Boolean = false,
+    onDirectionTap: (() -> Unit)? = null,
+    onSpeedUp: (() -> Unit)? = null,
+    onSpeedDown: (() -> Unit)? = null
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(ChipUnselectedBg)
+            .padding(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(
+                    text = shot.formatTemperature(settings.temperatureUnit),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextPrimary
+                )
+                Text(
+                    text = shot.weatherDescription,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+            }
+            WindIndicator(
+                windSpeedLabel = shot.formatWindSpeed(settings.windUnit),
+                windCompass = shot.windDirectionCompass,
+                windDegrees = shot.windDirectionDegrees,
+                shotBearing = shot.shotBearingDegrees,
+                windSpeedKmh = shot.windSpeedKmh,
+                distanceYards = shot.distanceYards,
+                trajectoryMultiplier = settings.trajectory.multiplier,
+                showEffect = true,
+                onDirectionTap = if (editable) onDirectionTap else null,
+                onSpeedUp = if (editable) onSpeedUp else null,
+                onSpeedDown = if (editable) onSpeedDown else null
+            )
+        }
+    }
+}
+
+// ── Weather-Adjusted Distance ───────────────────────────────────────────────
+
+@Composable
+fun WeatherAdjustedDistance(shot: ShotResult, settings: AppSettings) {
+    if (shot.windSpeedKmh <= 0 && shot.temperatureF == 70) return
+
+    val weatherEffect = remember(shot, settings) {
+        WindCalculator.analyze(
+            windSpeedKmh = shot.windSpeedKmh,
+            windFromDegrees = shot.windDirectionDegrees,
+            shotBearingDegrees = shot.shotBearingDegrees,
+            distanceYards = shot.distanceYards,
+            trajectoryMultiplier = settings.trajectory.multiplier,
+            temperatureF = shot.temperatureF
+        )
+    }
+    val adjustedYards = (shot.distanceYards - weatherEffect.totalWeatherEffectYards).coerceAtLeast(0)
+    val adjustedMeters = (adjustedYards * 0.9144).toInt()
+    val adjustedDisplay = if (settings.distanceUnit == DistanceUnit.YARDS) "$adjustedYards" else "$adjustedMeters"
+    val unitLabel = shot.shortUnitLabel(settings.distanceUnit)
+    val diff = weatherEffect.totalWeatherEffectYards
+    val diffText = if (diff >= 0) "(+$diff)" else "($diff)"
+
+    Spacer(Modifier.height(12.dp))
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text = "Weather Adjusted: $adjustedDisplay $unitLabel ",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = TextSecondary
+        )
+        Text(
+            text = diffText,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = windCategoryColor(weatherEffect.colorCategory)
+        )
+    }
+}
+
+// ── Share Shot Button ───────────────────────────────────────────────────────
+
+@Composable
+fun ShareShotButton(shot: ShotResult, settings: AppSettings, shotHistory: List<ShotResult>) {
+    val context = LocalContext.current
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .clickable {
+                var bitmap: android.graphics.Bitmap? = null
+                try {
+                    bitmap = ShotCardRenderer.render(
+                        context = context,
+                        result = shot,
+                        settings = settings,
+                        shotHistory = shotHistory
+                    )
+                    ShareUtil.shareShotCard(context, bitmap)
+                } catch (e: Exception) {
+                    android.util.Log.e("ShareShotButton", "Failed to share shot card", e)
+                } finally {
+                    bitmap?.recycle()
+                }
+            }
+            .padding(horizontal = 24.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Icon(
+            imageVector = Icons.Default.Share,
+            contentDescription = "Share shot",
+            tint = DarkGreen,
+            modifier = Modifier.size(20.dp)
+        )
+        Text(
+            text = "Share",
+            style = MaterialTheme.typography.labelLarge,
+            color = DarkGreen,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
+}
+
+// ── Achievement Unlock Banner ───────────────────────────────────────────────
+
+@Composable
+fun AchievementUnlockBanner(
+    emoji: String,
+    title: String,
+    description: String
+) {
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { visible = true }
+
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(tween(400)) + scaleIn(
+            animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f)
+        )
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color(0xFFFFF8E1))
+                .border(1.dp, Color(0xFFFFE082), RoundedCornerShape(16.dp))
+                .padding(vertical = 16.dp, horizontal = 20.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = emoji,
+                    fontSize = 28.sp
+                )
+                Column {
+                    Text(
+                        text = "ACHIEVEMENT UNLOCKED",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF6D4C41),
+                        letterSpacing = 1.5.sp
+                    )
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFF4E342E)
+                    )
+                    Text(
+                        text = description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF8D6E63)
+                    )
+                }
+            }
+        }
     }
 }

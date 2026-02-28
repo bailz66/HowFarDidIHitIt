@@ -15,8 +15,14 @@ import com.smacktrack.golf.location.WindCalculator
 import com.smacktrack.golf.ui.AppSettings
 import com.smacktrack.golf.ui.DistanceUnit
 import com.smacktrack.golf.ui.ShotResult
-import com.smacktrack.golf.ui.TemperatureUnit
-import com.smacktrack.golf.ui.WindUnit
+import com.smacktrack.golf.ui.formatTemperature
+import com.smacktrack.golf.ui.formatWindSpeed
+import com.smacktrack.golf.ui.percentileAmongClub
+import com.smacktrack.golf.ui.primaryDistance
+import com.smacktrack.golf.ui.primaryUnitLabel
+import com.smacktrack.golf.ui.secondaryDistance
+import com.smacktrack.golf.ui.shortUnitLabel
+import com.smacktrack.golf.ui.windStrengthLabel
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -99,8 +105,8 @@ object ShotCardRenderer {
         y += 100f
 
         // 4. Primary distance
-        val primaryDistance = if (settings.distanceUnit == DistanceUnit.YARDS) result.distanceYards else result.distanceMeters
-        val primaryUnit = if (settings.distanceUnit == DistanceUnit.YARDS) "YARDS" else "METERS"
+        val primaryDistance = result.primaryDistance(settings.distanceUnit)
+        val primaryUnit = result.primaryUnitLabel(settings.distanceUnit)
         val distancePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             typeface = robotoBold
             textSize = 180f
@@ -123,7 +129,7 @@ object ShotCardRenderer {
         y += 50f
 
         // 6. Secondary distance
-        val secondaryDistance = if (settings.distanceUnit == DistanceUnit.YARDS) "${result.distanceMeters}m" else "${result.distanceYards}yd"
+        val secondaryDistance = result.secondaryDistance(settings.distanceUnit)
         val secondaryPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             typeface = poppinsMedium
             textSize = 30f
@@ -134,14 +140,8 @@ object ShotCardRenderer {
         y += 50f
 
         // 7. Celebration badge
-        val currentDistance = if (settings.distanceUnit == DistanceUnit.YARDS) result.distanceYards else result.distanceMeters
-        val priorShots = shotHistory.filter { it.club == result.club && it.timestampMs != result.timestampMs }
-        if (priorShots.size >= 5) {
-            val beatenCount = priorShots.count { shot ->
-                val d = if (settings.distanceUnit == DistanceUnit.YARDS) shot.distanceYards else shot.distanceMeters
-                currentDistance >= d
-            }
-            val percentile = beatenCount.toFloat() / priorShots.size.toFloat() * 100f
+        val percentile = result.percentileAmongClub(shotHistory, settings.distanceUnit)
+        if (percentile != null) {
             val badgeText: String?
             val badgeTextColor: Int
             val badgeBgColor: Int
@@ -198,11 +198,7 @@ object ShotCardRenderer {
         val stripPad = 32f
 
         // Temperature
-        val tempDisplay = if (settings.temperatureUnit == TemperatureUnit.FAHRENHEIT) {
-            "${result.temperatureF}\u00B0F"
-        } else {
-            "${result.temperatureC}\u00B0C"
-        }
+        val tempDisplay = result.formatTemperature(settings.temperatureUnit)
         val tempPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             typeface = poppinsSemiBold
             textSize = 34f
@@ -219,11 +215,7 @@ object ShotCardRenderer {
         canvas.drawText(result.weatherDescription, stripRect.left + stripPad, y + 90f, weatherPaint)
 
         // Wind (right side)
-        val windSpeed = if (settings.windUnit == WindUnit.KMH) {
-            "${result.windSpeedKmh.toInt()} km/h"
-        } else {
-            "${(result.windSpeedKmh * 0.621371).toInt()} mph"
-        }
+        val windSpeed = result.formatWindSpeed(settings.windUnit)
         val windPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             typeface = poppinsSemiBold
             textSize = 34f
@@ -262,10 +254,10 @@ object ShotCardRenderer {
                 trajectoryMultiplier = settings.trajectory.multiplier,
                 temperatureF = result.temperatureF
             )
-            val adjustedYards = result.distanceYards - weatherEffect.totalWeatherEffectYards
+            val adjustedYards = (result.distanceYards - weatherEffect.totalWeatherEffectYards).coerceAtLeast(0)
             val adjustedMeters = (adjustedYards * 0.9144).toInt()
             val adjustedDisplay = if (settings.distanceUnit == DistanceUnit.YARDS) "$adjustedYards" else "$adjustedMeters"
-            val unitLabel = if (settings.distanceUnit == DistanceUnit.YARDS) "yds" else "m"
+            val unitLabel = result.shortUnitLabel(settings.distanceUnit)
             val diff = weatherEffect.totalWeatherEffectYards
             val diffText = if (diff >= 0) "(+$diff)" else "($diff)"
 
@@ -373,13 +365,4 @@ object ShotCardRenderer {
         WindCalculator.WindColorCategory.STRONG_HURTING  -> 0xFFB71C1C.toInt()
     }
 
-    private fun windStrengthLabel(windSpeedKmh: Double): String = when {
-        windSpeedKmh < 6   -> "None"
-        windSpeedKmh < 13  -> "Very Light"
-        windSpeedKmh < 20  -> "Light"
-        windSpeedKmh < 36  -> "Medium"
-        windSpeedKmh < 50  -> "Strong"
-        windSpeedKmh < 71  -> "Very Strong"
-        else               -> "Extreme"
-    }
 }

@@ -48,6 +48,7 @@ class ShotRepository(context: Context) {
                             null
                         }
                     }?.distinctBy { it.timestampMs }
+                        ?.sortedBy { it.timestampMs }
                         ?: emptyList()
                     trySend(shots)
                 }
