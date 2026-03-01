@@ -16,7 +16,10 @@ import android.app.Application
 import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.firebase.analytics.FirebaseAnalytics
 import com.smacktrack.golf.data.AchievementRepository
+import com.smacktrack.golf.service.ShotTrackingService
+import com.smacktrack.golf.data.AnalyticsTracker
 import com.smacktrack.golf.data.AuthManager
 import com.smacktrack.golf.data.ShotRepository
 import com.smacktrack.golf.domain.Club
@@ -121,6 +124,7 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
 
     private val repository = ShotRepository(application)
     private val achievementRepository = AchievementRepository(application)
+    private val analyticsTracker = AnalyticsTracker(FirebaseAnalytics.getInstance(application))
     var authManager: AuthManager? = null
         set(value) {
             field?.cleanup()
@@ -255,6 +259,7 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
     @Volatile private var gpsState = GpsState()
 
     private var locationJob: Job? = null
+    private var shotTimeoutJob: Job? = null
 
     // Calibration: start = 3.5s (7 samples), end = 2s (4 samples) at 500ms intervals
     // End calibration is shorter because GPS has been streaming during the walk.
@@ -263,6 +268,7 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
         const val END_CALIBRATION_DURATION_MS = 2000L
         const val CALIBRATION_INTERVAL_MS = 500L
         const val GPS_WARMUP_TIMEOUT_MS = 5000L
+        const val SHOT_TIMEOUT_MS = 15 * 60 * 1000L
     }
 
     fun onPermissionResult(granted: Boolean) {
@@ -324,6 +330,28 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
         return samples
     }
 
+    private fun startTrackingService() {
+        ShotTrackingService.start(getApplication())
+    }
+
+    private fun stopTrackingService() {
+        ShotTrackingService.stop(getApplication())
+    }
+
+    private fun startShotTimeout() {
+        shotTimeoutJob?.cancel()
+        shotTimeoutJob = viewModelScope.launch {
+            delay(SHOT_TIMEOUT_MS)
+            toast("Shot timed out after 15 minutes")
+            nextShot()
+        }
+    }
+
+    private fun cancelShotTimeout() {
+        shotTimeoutJob?.cancel()
+        shotTimeoutJob = null
+    }
+
     fun markStart() {
         // Default to Driver if no club selected yet
         if (_uiState.value.selectedClub == null) {
@@ -332,6 +360,8 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
         _uiState.update { it.copy(phase = ShotPhase.CALIBRATING_START) }
 
         startLocationUpdates()
+        startTrackingService()
+        startShotTimeout()
 
         viewModelScope.launch {
             // Wait for fresh GPS fix before calibrating (stale coords were cleared on reset)
@@ -348,6 +378,8 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
                     toast("Could not get GPS position — try again in an open area")
                     _uiState.update { it.copy(phase = ShotPhase.CLUB_SELECT) }
                     stopLocationUpdates()
+                    stopTrackingService()
+                    cancelShotTimeout()
                     return@launch
                 }
 
@@ -427,6 +459,8 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
             )
 
             stopLocationUpdates()
+            stopTrackingService()
+            cancelShotTimeout()
 
             val shotBearing = bearingDegrees(startCoord, endCoord)
 
@@ -443,6 +477,9 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
                 shotBearingDegrees = shotBearing
             )
 
+            // Log analytics event first (no PII/location data)
+            analyticsTracker.logShot(result)
+
             // Update UI immediately — don't block on network
             _uiState.update {
                 it.copy(
@@ -457,6 +494,7 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
             // Save to Firestore in background (only when signed in to avoid duplicate local save)
             if (capturedUid != null) {
                 firestoreSync { repository.saveShot(result, forUid = capturedUid) }
+                viewModelScope.launch { repository.incrementGlobalShotCount() }
             }
 
             // Check achievements
@@ -479,6 +517,7 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
                 }
                 achievementRepository.saveUnlocked(_uiState.value.unlockedAchievements)
                 newAchievements.forEach { achievement ->
+                    analyticsTracker.logAchievement(achievement.category.name, achievement.tier.name)
                     if (capturedUid != null) {
                         firestoreSync {
                             achievementRepository.saveToFirestore(achievement.storageKey, now, capturedUid)
@@ -495,6 +534,8 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
 
     fun nextShot() {
         stopLocationUpdates()
+        stopTrackingService()
+        cancelShotTimeout()
         clearGpsState()
         _uiState.update {
             it.copy(
@@ -512,6 +553,8 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
     override fun onCleared() {
         super.onCleared()
         stopLocationUpdates()
+        stopTrackingService()
+        cancelShotTimeout()
         authManager?.cleanup()
     }
 

@@ -147,6 +147,12 @@ private val locationPermissions = arrayOf(
     Manifest.permission.ACCESS_COARSE_LOCATION
 )
 
+private val allPermissions = arrayOf(
+    Manifest.permission.ACCESS_FINE_LOCATION,
+    Manifest.permission.ACCESS_COARSE_LOCATION,
+    Manifest.permission.POST_NOTIFICATIONS
+)
+
 private val navItems = listOf(
     NavItem("Tracker", Icons.Default.Place),
     NavItem("Stats", Icons.Default.Star),
@@ -182,7 +188,7 @@ fun SmackTrackApp(viewModel: ShotTrackerViewModel) {
         if (alreadyGranted) {
             viewModel.onPermissionResult(true)
         } else {
-            permissionLauncher.launch(locationPermissions)
+            permissionLauncher.launch(allPermissions)
         }
     }
 

@@ -52,12 +52,16 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import android.app.Activity
+import android.view.WindowManager
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -133,6 +137,20 @@ fun ShotTrackerScreen(
     modifier: Modifier = Modifier
 ) {
     val settings = uiState.settings
+
+    // Keep screen on during active tracking phases
+    val keepScreenOn = uiState.phase in setOf(
+        ShotPhase.CALIBRATING_START, ShotPhase.WALKING, ShotPhase.CALIBRATING_END
+    )
+    val activity = (LocalContext.current as? Activity)
+    DisposableEffect(keepScreenOn) {
+        if (keepScreenOn) {
+            activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        onDispose {
+            activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
 
     AnimatedContent(
         targetState = uiState.phase,
