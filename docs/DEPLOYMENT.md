@@ -7,13 +7,20 @@ CI/CD pipeline using GitHub Actions. Automated builds, tests, and release artifa
 ## CI/CD Pipeline (GitHub Actions)
 
 ### Workflow: `ci.yml` — Runs on Every Push & PR
+
+Triggers on pushes and PRs to `master`/`main`/`release/**`. Uses `gradle/actions/setup-gradle@v4` for Gradle caching and concurrency groups to cancel stale runs.
+
 ```yaml
 name: CI
 on:
   push:
-    branches: [master, main]
+    branches: [master, main, 'release/**']
   pull_request:
-    branches: [master, main]
+    branches: [master, main, 'release/**']
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   lint:
@@ -22,7 +29,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with: { distribution: 'temurin', java-version: '21' }
-      - run: ./gradlew lint detekt ktlintCheck
+      - uses: gradle/actions/setup-gradle@v4
+      - run: ./gradlew lint
 
   unit-test:
     runs-on: ubuntu-latest
@@ -30,8 +38,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with: { distribution: 'temurin', java-version: '21' }
+      - uses: gradle/actions/setup-gradle@v4
       - run: ./gradlew testDebugUnitTest
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: unit-test-reports
           path: app/build/reports/tests/
@@ -43,11 +53,19 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with: { distribution: 'temurin', java-version: '21' }
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
       - uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 33
+          arch: x86_64
           script: ./gradlew connectedDebugAndroidTest
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: instrumented-test-reports
           path: app/build/reports/androidTests/
@@ -59,6 +77,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with: { distribution: 'temurin', java-version: '21' }
+      - uses: gradle/actions/setup-gradle@v4
       - run: ./gradlew assembleDebug
       - uses: actions/upload-artifact@v4
         with:
@@ -67,22 +86,48 @@ jobs:
 ```
 
 ### Workflow: `release.yml` — Runs on Git Tags
+
+Triggers on `v*` tags. Runs unit tests, builds signed AAB + APK, and creates a GitHub Release with artifacts.
+
 ```yaml
 name: Release
 on:
   push:
     tags: ['v*']
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  release:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with: { distribution: 'temurin', java-version: '21' }
+      - uses: gradle/actions/setup-gradle@v4
       - run: ./gradlew testDebugUnitTest
+
+  release:
+    runs-on: ubuntu-latest
+    needs: test
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: 'temurin', java-version: '21' }
+      - uses: gradle/actions/setup-gradle@v4
       - name: Build signed release bundle
         run: ./gradlew bundleRelease
+        env:
+          KEYSTORE_FILE: ${{ secrets.KEYSTORE_FILE }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+      - name: Build release APK
+        run: ./gradlew assembleRelease
         env:
           KEYSTORE_FILE: ${{ secrets.KEYSTORE_FILE }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
@@ -92,11 +137,41 @@ jobs:
         with:
           name: release-aab
           path: app/build/outputs/bundle/release/app-release.aab
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-apk
+          path: app/build/outputs/apk/release/app-release.apk
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: app/build/outputs/bundle/release/app-release.aab
+          files: |
+            app/build/outputs/bundle/release/app-release.aab
+            app/build/outputs/apk/release/app-release.apk
+          generate_release_notes: true
 ```
+
+### CI/CD Enhancements
+
+| Feature | Implementation |
+|---------|---------------|
+| **Gradle caching** | `gradle/actions/setup-gradle@v4` — automatic dependency and build cache |
+| **KVM enablement** | udev rules in instrumented-test job for emulator acceleration |
+| **Concurrency groups** | `ci-${{ github.ref }}` cancels stale CI runs on same branch |
+| **Artifact upload on failure** | `if: always()` ensures test reports upload even on failure |
+| **Release concurrency** | `cancel-in-progress: false` for release jobs (never cancel a release) |
+
+### Branching & CI Triggers
+
+This project uses **GitLab Flow** for branching. See [Branching Strategy](./BRANCHING_STRATEGY.md) for full details.
+
+| Event | `ci.yml` | `release.yml` |
+|-------|----------|---------------|
+| Push to `master` | Yes | No |
+| Push to `release/**` | Yes | No |
+| PR to `master` | Yes | No |
+| PR to `release/**` | Yes | No |
+| `v*` tag push | No | Yes |
+| Feature branch PR | Yes | No |
 
 ## App Signing
 
@@ -107,8 +182,8 @@ jobs:
 ### Release Signing
 - Generate a release keystore (do this once, keep it safe):
 ```bash
-keytool -genkey -v -keystore howfardidihitit-release.keystore \
-  -alias howfardidihitit -keyalg RSA -keysize 2048 -validity 10000
+keytool -genkey -v -keystore smacktrack-release.keystore \
+  -alias smacktrack -keyalg RSA -keysize 2048 -validity 10000
 ```
 - **NEVER commit the keystore to git**
 - Store keystore and passwords as GitHub Secrets:
@@ -152,7 +227,7 @@ android {
 
 | Field | Value |
 |-------|-------|
-| App name | How Far Did I Hit It |
+| App name | SmackTrack |
 | Short description | Simple golf GPS — measure how far you hit the ball |
 | Full description | See below |
 | Category | Sports |
@@ -164,7 +239,7 @@ android {
 
 **Full description draft:**
 ```
-How Far Did I Hit It is the simplest way to measure your golf shot distances.
+SmackTrack is the simplest way to measure your golf shot distances.
 
 No subscriptions. No ads. No account needed. Just tap, walk, and tap.
 
@@ -202,7 +277,7 @@ Use `r0adkll/upload-google-play` GitHub Action or Fastlane to automate Play Stor
 - uses: r0adkll/upload-google-play@v1
   with:
     serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT }}
-    packageName: com.example.howfardidihitit
+    packageName: com.smacktrack.golf
     releaseFiles: app/build/outputs/bundle/release/app-release.aab
     track: production
 ```

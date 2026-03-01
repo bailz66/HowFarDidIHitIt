@@ -9,11 +9,13 @@ The core feature of the app. A golfer hits a shot, wants to know how far it went
 ```
 [Open App]
     ↓
+[Grant Location Permission] ← Requested once at launch via MainActivity
+    ↓
 [Select Club] ← Scrollable list: Driver → Lob Wedge
     ↓
 [Tap "Mark Start"]
     ↓
-[Calibrating... (1.5s)] ← GPS samples collected, averaged, outliers rejected
+[Calibrating... (2.5s)] ← GPS samples collected, weighted, outliers rejected
     ↓
 [Start Pinned ✓]
     ↓
@@ -23,15 +25,15 @@ The core feature of the app. A golfer hits a shot, wants to know how far it went
     ↓
 [Tap "Mark End"]
     ↓
-[Calibrating... (1.5s)] ← Same GPS calibration for end position
-    ↓
+[Calibrating... (2.5s)] ← Same GPS calibration for end position
+    ↓                   ← Weather fetched in parallel via async
 [End Pinned ✓]
     ↓
 [Shot Result Display]
     ├── Club: Driver
     ├── Distance: 245 yards (224m)
     ├── Weather: 72°F, Clear sky, Wind 8mph NW
-    └── [Save ✓ — automatic]
+    └── [Save ✓ — automatic to in-memory history]
     ↓
 [Ready for next shot]
 ```
@@ -41,48 +43,47 @@ The core feature of the app. A golfer hits a shot, wants to know how far it went
 ### Why Calibrate?
 GPS on phones is accurate to ~3-5 meters under open sky, which is fine for golf distances. But a single GPS fix can occasionally spike 10-20m off due to atmospheric interference, multipath reflection, or satellite geometry. The calibration algorithm smooths out this noise.
 
-### Algorithm
+### Algorithm (Inverse-Variance Weighted)
 1. **Trigger**: User taps "Mark Start" or "Mark End"
-2. **Collection**: Request GPS fixes at the highest available rate for **~1.5 seconds**
-   - Target: 5-10 readings (depends on device GPS update speed)
-   - Use `FusedLocationProviderClient` with `PRIORITY_HIGH_ACCURACY`
-3. **Outlier Rejection**:
-   - Calculate the **median** latitude and longitude from all samples
-   - Compute the distance from each sample to the median
-   - **Discard** any sample more than **10 meters** from the median (these are GPS spikes)
-4. **Averaging**: Take the **arithmetic mean** of remaining valid samples
-5. **Result**: Single calibrated `(latitude, longitude)` coordinate
-6. **Fallback**: If fewer than 3 valid readings after rejection, use the best available reading but show a "Low accuracy" warning
+2. **Collection**: GPS fixes collected at 500ms intervals for **2.5 seconds** via `LocationProvider`
+   - Uses `FusedLocationProviderClient` with `PRIORITY_HIGH_ACCURACY`
+   - Each sample includes latitude, longitude, and reported accuracy in meters
+3. **Cold-Start Rejection**: First GPS sample is discarded (often inaccurate due to GPS cold-start jitter)
+4. **Accuracy Gating**: Samples with reported accuracy > 20m are rejected
+5. **Weighted Centroid**: Compute initial position using inverse-variance weights (`w = 1/accuracy²`)
+   - More accurate samples receive exponentially higher weight
+6. **MAD Outlier Rejection**: Calculate distances from weighted centroid, compute median absolute deviation (MAD), reject samples beyond MAD × 2.5
+7. **Final Weighted Average**: Recompute from inliers only
+8. **Accuracy Estimate**: Weighted RMS distance from final position
+9. **Fallback**: If fewer than 3 valid readings after rejection, fall back to raw GPS position
 
-### Why Median + Mean?
-- **Median** is robust to outliers — it finds the "center" of the cluster
-- **Mean** of the cleaned set gives the best positional estimate
-- This two-step approach handles the common case (tight cluster + 1-2 spikes) very well
+### Why Inverse-Variance Weighting?
+- GPS reports an accuracy estimate with each fix — this is valuable signal
+- A 3m-accuracy sample should count much more than a 15m-accuracy sample
+- Inverse-variance (`1/accuracy²`) is the statistically optimal weighting for Gaussian noise
+- Combined with MAD outlier rejection, this handles both systematic bias and random spikes
 
-### Pseudocode
+### Implementation
 ```kotlin
-fun calibrate(samples: List<GpsCoordinate>): CalibratedResult {
-    if (samples.size < 3) return CalibratedResult(samples.best(), lowAccuracy = true)
-
-    val medianLat = samples.map { it.lat }.median()
-    val medianLon = samples.map { it.lon }.median()
-    val median = GpsCoordinate(medianLat, medianLon)
-
-    val valid = samples.filter { haversine(it, median) <= 10.0 } // 10m threshold
-
-    if (valid.size < 3) return CalibratedResult(median, lowAccuracy = true)
-
-    val calibrated = GpsCoordinate(
-        lat = valid.map { it.lat }.average(),
-        lon = valid.map { it.lon }.average()
-    )
-    return CalibratedResult(calibrated, lowAccuracy = false)
+fun calibrateWeighted(samples: List<GpsSample>): CalibratedPosition? {
+    if (samples.size < 2) return null
+    val withoutFirst = samples.drop(1)                    // Cold-start rejection
+    val gated = withoutFirst.filter {                     // Accuracy gate
+        it.accuracyMeters in 0.1..ACCURACY_GATE_METERS
+    }
+    if (gated.size < MIN_SAMPLES) return null             // Need ≥ 3 valid samples
+    val centroid = weightedCentroid(gated)                 // Inverse-variance weighted
+    val distances = gated.map { haversineMeters(it, centroid) }
+    val madThreshold = median(distances) * OUTLIER_MAD_FACTOR  // MAD × 2.5
+    val inliers = gated.filterIndexed { i, _ -> distances[i] <= madThreshold }
+    if (inliers.size < MIN_SAMPLES) return null
+    return CalibratedPosition(weightedCentroid(inliers), estimatedAccuracy, inliers.size)
 }
 ```
 
 ## Live Distance Tracker
 - Activates after the start pin is set
-- Uses standard location updates (every 1-2 seconds, `PRIORITY_HIGH_ACCURACY`)
+- Polls current GPS position every 1 second
 - Calculates Haversine distance from start pin to current location
 - Displays: `"142 yards (130m)"` — updates in real-time
 - Useful for: finding the ball, getting a sense of distance while walking
@@ -110,37 +111,35 @@ At golf distances (50-400 yards), this is accurate to within centimeters — far
 
 ## Club Selection
 - Presented **before** "Mark Start" so the golfer sets context while standing at the ball
-- Scrollable list or horizontal chip selector grouped by category
-- Remember last selected club for convenience (most golfers hit the same club multiple times in a row at the range)
-- Club list: see [Data Model — Club Enum](./DATA_MODEL.md)
+- Horizontal scrolling chips grouped by category (Woods, Hybrids, Irons, Wedges)
+- Clubs can be enabled/disabled in Settings to match your bag
+- Default selection: Driver (most common first shot)
 
 ## Edge Cases
 
 | Scenario | Handling |
 |----------|----------|
-| GPS permissions denied | Show explanation dialog → system permission request → block shot tracking until granted |
-| GPS accuracy > 20m | Show warning banner: "Low GPS signal — results may be less accurate" |
+| GPS permissions denied | Permission requested once at launch; tracking disabled until granted |
+| GPS accuracy > 20m | Samples rejected by accuracy gate; calibration may fall back to raw position |
 | User cancels mid-shot | "Reset" button clears start pin, returns to club selection |
-| App backgrounded while walking | Resume location tracking when app returns to foreground |
+| App backgrounded while walking | Location updates continue via LocationProvider Flow |
 | Very short shot (< 5 yards) | Record normally — could be a chip |
 | Very long shot (> 400 yards) | Record normally — par 5 drive + roll |
-| No club selected | Prompt user to select a club before allowing "Mark Start" |
-| GPS fix takes too long | Timeout after 5 seconds, use whatever samples were collected |
+| No club selected | "Mark Start" requires club selection |
+| GPS fix takes too long | 2.5s calibration window collects whatever samples are available |
 
 ## Dependencies
 - `com.google.android.gms:play-services-location` — FusedLocationProviderClient
-- `androidx.room:room-runtime` + `room-ktx` — local persistence
-- Kotlin Coroutines — async GPS collection
+- Kotlin Coroutines — async GPS collection and parallel weather fetch
 
 ## Acceptance Criteria
-- [ ] User can select a club from the full list (Driver → Lob Wedge) before starting a shot
-- [ ] Tapping "Mark Start" collects GPS samples over ~1.5s and calibrates to a single coordinate
-- [ ] A "Calibrating..." indicator is visible during GPS sampling
-- [ ] After start pin is set, live distance (yards + meters) updates on screen as user moves
-- [ ] Tapping "Mark End" performs the same GPS calibration for the end position
-- [ ] Shot distance is calculated via Haversine formula, displayed in yards and meters
-- [ ] Shot is automatically saved to Room DB with all fields
-- [ ] User can reset/cancel a shot in progress
-- [ ] GPS permission handling with explanation dialog
-- [ ] Low GPS accuracy warning when device-reported accuracy exceeds 20m
-- [ ] App resumes tracking correctly if backgrounded and reopened mid-shot
+- [x] User can select a club from the full list (Driver → Lob Wedge) before starting a shot
+- [x] Tapping "Mark Start" collects GPS samples over ~2.5s and calibrates to a single coordinate
+- [x] A "Calibrating..." indicator is visible during GPS sampling
+- [x] After start pin is set, live distance (yards + meters) updates on screen as user moves
+- [x] Tapping "Mark End" performs the same GPS calibration for the end position
+- [x] Shot distance is calculated via Haversine formula, displayed in yards and meters
+- [x] Shot is automatically saved to in-memory history
+- [x] User can reset/cancel a shot in progress
+- [x] GPS permission requested at launch
+- [x] Calibration uses inverse-variance weighting with MAD outlier rejection

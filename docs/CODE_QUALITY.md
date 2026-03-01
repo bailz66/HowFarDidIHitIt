@@ -19,7 +19,7 @@ This document defines the coding standards, conventions, and quality gates for t
 ### Naming Conventions
 | Element | Convention | Example |
 |---------|-----------|---------|
-| Package | lowercase, dot-separated | `com.example.howfardidihitit.data` |
+| Package | lowercase, dot-separated | `com.smacktrack.golf.data` |
 | Class | PascalCase | `ShotTrackerViewModel` |
 | Function | camelCase | `calculateDistance()` |
 | Property | camelCase | `distanceYards` |
@@ -52,10 +52,10 @@ fun ShowShotResult(shot: Shot, onDismiss: () -> Unit) { ... }
 ## Architecture Rules
 
 ### Layer Boundaries
-- **UI layer** (screens, composables) NEVER directly accesses Room or Retrofit
-- **ViewModels** access data through **repositories only**
-- **Repositories** are the single source of truth for data
-- **Services** (Location, Weather) are injected via Hilt, not instantiated directly
+- **UI layer** (screens, composables) NEVER directly accesses network or GPS services
+- **ViewModel** manages all state and coordinates between services
+- **Services** (LocationProvider, WeatherService) are instantiated directly — no DI framework
+- **No repository pattern** — data is in-memory only, managed in the ViewModel
 
 ### State Management
 - UI state is an **immutable data class** exposed as `StateFlow<T>`
@@ -66,13 +66,15 @@ fun ShowShotResult(shot: Shot, onDismiss: () -> Unit) { ... }
 ```kotlin
 // UI State
 data class ShotTrackerUiState(
-    val selectedClub: Club? = null,
-    val startPin: GpsCoordinate? = null,
-    val endPin: GpsCoordinate? = null,
-    val liveDistanceYards: Double? = null,
-    val isCalibrating: Boolean = false,
+    val phase: ShotPhase = ShotPhase.CLUB_SELECT,
+    val selectedClub: Club? = Club.DRIVER,
+    val startCoordinate: GpsCoordinate? = null,
+    val liveDistanceYards: Int = 0,
+    val liveDistanceMeters: Int = 0,
     val shotResult: ShotResult? = null,
-    val error: String? = null
+    val shotHistory: List<ShotResult> = emptyList(),
+    val settings: AppSettings = AppSettings(),
+    val locationPermissionGranted: Boolean = false
 )
 ```
 
@@ -90,19 +92,10 @@ data class ShotTrackerUiState(
 - **Zero warnings** policy for new code — fix warnings, don't suppress them
 - Suppress only with documented justification: `@Suppress("reason: ...")`
 
-### Detekt (Kotlin Static Analysis)
-Configuration in `detekt.yml`:
-- Max function length: 30 lines (composables excluded)
-- Max class length: 200 lines
-- Complexity threshold: 10 (cyclomatic)
-- No magic numbers — use named constants
-- No wildcard imports
-
-### ktlint (Formatting)
-- Enforced via pre-commit hook or CI
-- Standard Kotlin style — no custom rules
-- Max line length: 120 characters
-- Trailing commas in multiline declarations
+### Future: Static Analysis
+Detekt and ktlint are not currently configured. When the project grows, consider adding:
+- Detekt for complexity and code smell detection
+- ktlint for consistent formatting
 
 ## Documentation Standards
 
@@ -164,7 +157,60 @@ chore/update-dependencies
 
 ## Performance Guidelines
 - Compose: avoid recomposition of expensive composables — use `key()` and `remember`
-- Room queries return `Flow<T>` — observe reactively, don't poll
+- StateFlow: observe reactively via `collectAsStateWithLifecycle()`
 - GPS: don't request high-frequency updates when the app is idle
 - Images: use vector drawables where possible, compress bitmaps
 - Startup: keep `onCreate` fast — defer non-critical initialization
+
+## Branch Protection Rules
+
+### `master` Branch Protection
+Configure in GitHub Settings → Branches → Branch protection rules:
+
+| Rule | Setting |
+|------|---------|
+| Require pull request before merging | **Enabled** |
+| Required approvals | 1 (increase as team grows) |
+| Dismiss stale PR approvals on new push | **Enabled** |
+| Require status checks to pass | **Enabled** |
+| Required status checks | `lint`, `unit-test`, `build` |
+| Require branch to be up to date | **Enabled** |
+| Restrict force pushes | **Enabled** (no force push) |
+| Restrict deletions | **Enabled** (no branch deletion) |
+
+### `release/*` Branch Protection
+| Rule | Setting |
+|------|---------|
+| Require pull request before merging | **Enabled** |
+| Required status checks | `lint`, `unit-test`, `build` |
+| Restrict force pushes | **Enabled** |
+| Allowed merge sources | `hotfix/*` branches only |
+
+## Merge Strategy Enforcement
+
+| Merge Type | Strategy | Rationale |
+|-----------|----------|-----------|
+| Feature → `master` | **Squash merge** | Produces a clean, linear commit history |
+| Bugfix → `master` | **Squash merge** | One commit per fix in history |
+| Hotfix → `release/*` | **Merge commit** | Preserves full fix history for audit |
+| Hotfix → `master` | **Cherry-pick** | Applies fix without pulling in release-specific commits |
+
+Configure in GitHub Settings → General → Pull Requests:
+- **Allow squash merging**: Enabled (default for feature/bugfix PRs)
+- **Allow merge commits**: Enabled (for hotfix → release merges)
+- **Allow rebase merging**: Disabled (prevents rewriting shared history)
+- **Automatically delete head branches**: Enabled (clean up after merge)
+
+## Required CI Status Checks
+
+The following checks must pass before any PR can be merged:
+
+| Check Name | Job | What It Validates |
+|-----------|-----|-------------------|
+| `lint` | `ci.yml` | Android Lint — no warnings or errors |
+| `unit-test` | `ci.yml` | All JUnit 5 unit tests pass |
+| `build` | `ci.yml` | Debug APK builds successfully |
+
+Instrumented tests (`instrumented-test`) run but are not required for merge, as emulator tests can be flaky in CI. They serve as an additional confidence signal.
+
+See [Branching Strategy](./BRANCHING_STRATEGY.md) for the full GitLab Flow workflow and branch naming conventions.
