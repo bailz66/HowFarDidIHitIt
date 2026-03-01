@@ -79,8 +79,8 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Icon
-import com.smacktrack.golf.domain.Achievement
 import com.smacktrack.golf.domain.Club
+import com.smacktrack.golf.domain.UnlockedAchievement
 import com.smacktrack.golf.location.WindCalculator
 import com.smacktrack.golf.ui.AppSettings
 import com.smacktrack.golf.ui.DistanceUnit
@@ -128,7 +128,7 @@ fun ShotTrackerScreen(
     onDeleteShot: (Int) -> Unit = {},
     onShotClicked: (ShotResult) -> Unit = {},
     animateEntrance: Boolean = false,
-    newlyUnlockedAchievements: List<Achievement> = emptyList(),
+    newlyUnlockedAchievements: List<UnlockedAchievement> = emptyList(),
     onAchievementsSeen: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -639,7 +639,7 @@ private fun ResultContent(
     onNextShot: () -> Unit,
     onWindDirectionChange: () -> Unit = {},
     onWindSpeedChange: (Double) -> Unit = {},
-    newlyUnlockedAchievements: List<Achievement> = emptyList(),
+    newlyUnlockedAchievements: List<UnlockedAchievement> = emptyList(),
     onAchievementsSeen: () -> Unit = {}
 ) {
     val percentile = remember(result, shotHistory, settings.distanceUnit) {
@@ -773,11 +773,16 @@ private fun ResultContent(
         // Achievement unlock banners
         if (newlyUnlockedAchievements.isNotEmpty()) {
             Spacer(Modifier.height(16.dp))
-            newlyUnlockedAchievements.forEach { achievement ->
+            newlyUnlockedAchievements.forEach { ua ->
+                val tColor = tierColor(ua.tier)
+                val tLabel = tierLabel(ua.tier).uppercase()
+                val tierDesc = ua.category.tiers.getOrNull(ua.tier.ordinal)?.description ?: ""
                 AchievementUnlockBanner(
-                    emoji = achievement.icon,
-                    title = achievement.title,
-                    description = achievement.description
+                    emoji = ua.category.icon,
+                    title = ua.category.displayName,
+                    description = tierDesc,
+                    tierLabel = tLabel,
+                    tierColor = tColor
                 )
                 Spacer(Modifier.height(8.dp))
             }

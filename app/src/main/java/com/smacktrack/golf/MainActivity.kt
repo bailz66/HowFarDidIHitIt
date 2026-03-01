@@ -86,7 +86,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import com.smacktrack.golf.data.AuthManager
-import com.smacktrack.golf.domain.Achievement
+import com.smacktrack.golf.domain.AchievementCategory
 import com.smacktrack.golf.ui.AppSettings
 import com.smacktrack.golf.ui.ShotResult
 import com.smacktrack.golf.ui.ShotTrackerViewModel
@@ -242,6 +242,35 @@ fun SmackTrackApp(viewModel: ShotTrackerViewModel) {
                             modifier = Modifier.size(22.dp)
                         )
                     }
+                    IconButton(onClick = { showAchievements = true }) {
+                        Box {
+                            Text(
+                                text = "\uD83C\uDFC6",
+                                fontSize = 18.sp,
+                                modifier = Modifier.align(Alignment.Center)
+                            )
+                            if (uiState.unlockedAchievements.isNotEmpty()) {
+                                val count = uiState.unlockedAchievements.size
+                                val badgeSize = if (count >= 10) 20.dp else 16.dp
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .size(badgeSize)
+                                        .clip(CircleShape)
+                                        .background(DarkGreen),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "$count",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontSize = if (count >= 10) 8.sp else 9.sp,
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
                     IconButton(
                         onClick = {
                             showSettings = !showSettings
@@ -321,7 +350,7 @@ fun SmackTrackApp(viewModel: ShotTrackerViewModel) {
                     } catch (_: android.content.ActivityNotFoundException) { }
                 },
                 achievementCount = uiState.unlockedAchievements.size,
-                totalAchievements = Achievement.TOTAL,
+                totalAchievements = AchievementCategory.TOTAL,
                 onOpenAchievements = { showAchievements = true },
                 modifier = Modifier.padding(innerPadding)
             )

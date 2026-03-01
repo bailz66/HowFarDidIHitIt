@@ -88,7 +88,7 @@ fun SettingsScreen(
     onClearError: () -> Unit = {},
     onDonate: () -> Unit = {},
     achievementCount: Int = 0,
-    totalAchievements: Int = 12,
+    totalAchievements: Int = 60,
     onOpenAchievements: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {

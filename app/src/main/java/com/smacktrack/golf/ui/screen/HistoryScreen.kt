@@ -110,9 +110,17 @@ fun HistoryScreen(
         return
     }
 
-    val sessions = groupIntoSessions(shotHistory).reversed()
+    // Memoize session grouping — O(n log n) sort + O(n) scan, avoid on every recomposition
+    val sessions = remember(shotHistory) { groupIntoSessions(shotHistory).reversed() }
     val sessionCount = sessions.size
     val sessionLabel = if (sessionCount == 1) "session" else "sessions"
+
+    // Pre-build timestamp→index lookup map — O(n) instead of O(n²) indexOfFirst per card
+    val timestampToIndex = remember(shotHistory) {
+        val map = HashMap<Long, Int>(shotHistory.size * 2)
+        shotHistory.forEachIndexed { index, shot -> map[shot.timestampMs] = index }
+        map
+    }
 
     val pageSize = 5
     var visibleSessionCount by remember { mutableIntStateOf(pageSize) }
@@ -161,7 +169,7 @@ fun HistoryScreen(
 
             val shotsReversed = session.shots.reversed()
             items(shotsReversed) { shot ->
-                val actualIndex = shotHistory.indexOfFirst { it.timestampMs == shot.timestampMs }
+                val actualIndex = timestampToIndex[shot.timestampMs] ?: -1
                 ShotHistoryCard(
                     shot = shot,
                     settings = settings,

@@ -786,7 +786,9 @@ fun ShareShotButton(shot: ShotResult, settings: AppSettings, shotHistory: List<S
 fun AchievementUnlockBanner(
     emoji: String,
     title: String,
-    description: String
+    description: String,
+    tierLabel: String = "ACHIEVEMENT",
+    tierColor: Color = Color(0xFFFFE082)
 ) {
     var visible by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { visible = true }
@@ -801,8 +803,8 @@ fun AchievementUnlockBanner(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(16.dp))
-                .background(Color(0xFFFFF8E1))
-                .border(1.dp, Color(0xFFFFE082), RoundedCornerShape(16.dp))
+                .background(tierColor.copy(alpha = 0.10f))
+                .border(1.dp, tierColor.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
                 .padding(vertical = 16.dp, horizontal = 20.dp)
         ) {
             Row(
@@ -815,10 +817,10 @@ fun AchievementUnlockBanner(
                 )
                 Column {
                     Text(
-                        text = "ACHIEVEMENT UNLOCKED",
+                        text = "$tierLabel UNLOCKED",
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF6D4C41),
+                        color = tierColor,
                         letterSpacing = 1.5.sp
                     )
                     Text(

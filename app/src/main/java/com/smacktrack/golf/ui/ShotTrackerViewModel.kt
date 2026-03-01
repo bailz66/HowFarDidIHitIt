@@ -19,8 +19,8 @@ import androidx.lifecycle.viewModelScope
 import com.smacktrack.golf.data.AchievementRepository
 import com.smacktrack.golf.data.AuthManager
 import com.smacktrack.golf.data.ShotRepository
-import com.smacktrack.golf.domain.Achievement
 import com.smacktrack.golf.domain.Club
+import com.smacktrack.golf.domain.UnlockedAchievement
 import com.smacktrack.golf.domain.checkAchievements
 import com.smacktrack.golf.domain.GpsCoordinate
 import com.smacktrack.golf.location.GpsSample
@@ -114,7 +114,7 @@ data class ShotTrackerUiState(
     val signInError: String? = null,
     val syncStatus: SyncStatus = SyncStatus.IDLE,
     val unlockedAchievements: Map<String, Long> = emptyMap(),
-    val newlyUnlockedAchievements: List<Achievement> = emptyList()
+    val newlyUnlockedAchievements: List<UnlockedAchievement> = emptyList()
 )
 
 class ShotTrackerViewModel(application: Application) : AndroidViewModel(application) {
@@ -144,6 +144,7 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
     private var errorObserverJob: Job? = null
 
     init {
+        achievementRepository.migrateOldKeys()
         val savedShots = repository.loadShots()
         val savedSettings = repository.loadSettings()
         val savedAchievements = achievementRepository.loadUnlocked()
@@ -470,7 +471,7 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
                 val now = System.currentTimeMillis()
                 _uiState.update { state ->
                     val merged = state.unlockedAchievements.toMutableMap()
-                    newAchievements.forEach { a -> merged[a.name] = now }
+                    newAchievements.forEach { a -> merged[a.storageKey] = now }
                     state.copy(
                         unlockedAchievements = merged,
                         newlyUnlockedAchievements = newAchievements
@@ -480,7 +481,7 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
                 newAchievements.forEach { achievement ->
                     if (capturedUid != null) {
                         firestoreSync {
-                            achievementRepository.saveToFirestore(achievement, now, capturedUid)
+                            achievementRepository.saveToFirestore(achievement.storageKey, now, capturedUid)
                         }
                     }
                 }
