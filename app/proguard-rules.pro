@@ -24,6 +24,9 @@
 -keepattributes SourceFile,LineNumberTable
 -renamesourcefileattribute SourceFile
 
+# ── Foreground service ────────────────────────────────────────────────────
+-keep class com.smacktrack.golf.service.ShotTrackingService { *; }
+
 # ── Firebase / Google Sign-in ─────────────────────────────────────────────
 -keep class com.google.firebase.** { *; }
 -keep class com.google.android.gms.** { *; }

@@ -32,7 +32,7 @@ class ShotTrackingService : Service() {
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("SmackTrack")
             .setContentText("Tracking your shot\u2026")
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .build()

@@ -1,5 +1,6 @@
 package com.smacktrack.golf.domain
 
+import com.smacktrack.golf.network.weatherGroup
 import com.smacktrack.golf.ui.ShotResult
 import java.util.Calendar
 
@@ -136,12 +137,13 @@ fun checkAchievements(
         if (highest >= 0) unlockUpTo(cat, highest)
     }
 
-    // WEATHERPROOF — distinct weather conditions
+    // WEATHERPROOF — distinct weather groups (Clear, Fog, Drizzle, Rain, Snow, Showers, Thunderstorm)
     run {
         val cat = AchievementCategory.WEATHERPROOF
-        val conditions = allShots.map { it.weatherDescription }.distinct()
+        val groups = allShots.map { weatherGroup(it.weatherDescription) }
             .filter { it.isNotBlank() && it != "Unknown" }
-        val highest = cat.tiers.indexOfLast { conditions.size >= it.threshold }
+            .distinct()
+        val highest = cat.tiers.indexOfLast { groups.size >= it.threshold }
         if (highest >= 0) unlockUpTo(cat, highest)
     }
 

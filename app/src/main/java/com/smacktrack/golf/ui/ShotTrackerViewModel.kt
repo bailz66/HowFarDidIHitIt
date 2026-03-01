@@ -360,7 +360,9 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
         _uiState.update { it.copy(phase = ShotPhase.CALIBRATING_START) }
 
         startLocationUpdates()
-        startTrackingService()
+        if (_uiState.value.locationPermissionGranted) {
+            startTrackingService()
+        }
         startShotTimeout()
 
         viewModelScope.launch {
@@ -422,6 +424,8 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
         val club = state.selectedClub ?: return
         val capturedUid = repository.snapshotUid()
 
+        // Cancel timeout immediately — user tapped TRACK, shot isn't abandoned
+        cancelShotTimeout()
         _uiState.update { it.copy(phase = ShotPhase.CALIBRATING_END) }
 
         viewModelScope.launch {
@@ -460,7 +464,6 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
 
             stopLocationUpdates()
             stopTrackingService()
-            cancelShotTimeout()
 
             val shotBearing = bearingDegrees(startCoord, endCoord)
 

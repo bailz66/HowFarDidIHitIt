@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmackTrack - Privacy Policy</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            max-width: 720px;
+            margin: 0 auto;
+            padding: 2rem 1.5rem;
+            line-height: 1.7;
+            color: #1a1a1a;
+            background: #fafafa;
+        }
+        h1 { color: #2e7d32; margin-bottom: 0.25rem; }
+        h2 { color: #333; margin-top: 2rem; }
+        .subtitle { color: #666; margin-top: 0; }
+        .updated { color: #888; font-size: 0.9rem; }
+        ul { padding-left: 1.5rem; }
+        li { margin-bottom: 0.5rem; }
+        a { color: #2e7d32; }
+        .footer { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid #ddd; color: #888; font-size: 0.85rem; }
+    </style>
+</head>
+<body>
+
+<h1>SmackTrack Privacy Policy</h1>
+<p class="subtitle">Golf Shot Distance Tracker</p>
+<p class="updated">Last updated: March 1, 2026</p>
+
+<h2>What the app does</h2>
+<p>SmackTrack uses your phone's GPS to measure how far you hit a golf ball. That's it.</p>
+
+<h2>Location data</h2>
+<ul>
+    <li>GPS is used <strong>only</strong> to calculate the distance between your start and end positions on the golf course.</li>
+    <li>A foreground service with a visible notification keeps GPS active while you walk to your ball, even if the screen locks. The service runs only during active shot tracking and stops automatically when the shot completes or after 15 minutes.</li>
+    <li>Your coordinates are sent to the <a href="https://open-meteo.com/">Open-Meteo</a> weather API to fetch wind and temperature conditions (see Weather data below). <strong>No other service receives your location.</strong></li>
+    <li>Raw GPS coordinates are not stored. Only the calculated distance in yards/meters is saved to your shot history.</li>
+</ul>
+
+<h2>Weather data</h2>
+<ul>
+    <li>When a shot is recorded, the app sends your approximate location to the <a href="https://open-meteo.com/">Open-Meteo</a> weather API to fetch current wind and temperature conditions.</li>
+    <li>Open-Meteo is a free, open-source weather API. Their privacy policy is available on their website.</li>
+</ul>
+
+<h2>Optional Google Sign-in &amp; cloud sync</h2>
+<ul>
+    <li>You can <strong>optionally</strong> sign in with your Google account to sync shot history, settings, and achievements across devices.</li>
+    <li>If you sign in, your data is stored in <a href="https://firebase.google.com/">Google Firebase</a> Cloud Firestore, scoped to your account. Only you can access your data.</li>
+    <li>We store your email address solely to identify your account. We do not share it with any third party.</li>
+    <li>If you do not sign in, all data stays on your device only. The app is fully functional without an account.</li>
+    <li>You can sign out at any time in Settings. Your data remains available locally after sign-out.</li>
+</ul>
+
+<h2>Data stored on your device</h2>
+<ul>
+    <li><strong>Shot history:</strong> Club used, distance, weather conditions, and timestamp.</li>
+    <li><strong>Settings:</strong> Your preferred units (yards/meters, mph/km/h, &deg;F/&deg;C), trajectory, and club selections.</li>
+    <li><strong>Achievements:</strong> Unlocked achievement badges and unlock timestamps.</li>
+    <li>All data is stored locally using Android SharedPreferences. If you opt in to cloud sync, a copy is also stored in Firestore (see above).</li>
+</ul>
+
+<h2>Analytics</h2>
+<ul>
+    <li>The app uses <strong>Firebase Analytics</strong> to collect anonymized, aggregated usage data such as shot counts and achievement unlocks.</li>
+    <li>Firebase Analytics does not collect personally identifiable information. No GPS coordinates, shot distances, or user content is sent to analytics.</li>
+    <li>This data helps us understand how the app is used so we can improve it. You can opt out of Firebase Analytics through your device's Google settings.</li>
+</ul>
+
+<h2>Third-party services</h2>
+<ul>
+    <li><strong>Google Play Services</strong> &mdash; GPS location via FusedLocationProviderClient.</li>
+    <li><strong>Open-Meteo</strong> &mdash; weather data (approximate coordinates sent for weather lookup).</li>
+    <li><strong>Firebase Authentication</strong> &mdash; optional Google Sign-in (only if you choose to sign in).</li>
+    <li><strong>Firebase Cloud Firestore</strong> &mdash; optional cloud sync (only if signed in).</li>
+    <li><strong>Firebase Analytics</strong> &mdash; anonymized usage data (no PII, no location data).</li>
+</ul>
+<p>No advertising networks or social media SDKs are included in the app.</p>
+
+<h2>Children's privacy</h2>
+<p>The app does not knowingly collect personal data from anyone, including children under 13.</p>
+
+<h2>Changes to this policy</h2>
+<p>If we update this policy, the changes will be posted on this page with a new "last updated" date.</p>
+
+<h2>Contact</h2>
+<p>Questions or concerns? Open an issue on our <a href="https://github.com/bailz66/HowFarDidIHitIt">GitHub repository</a>.</p>
+
+<div class="footer">
+    <p>&copy; 2026 SmackTrack. Built with care for golfers who just want to know how far they hit it.</p>
+</div>
+
+</body>
+</html>

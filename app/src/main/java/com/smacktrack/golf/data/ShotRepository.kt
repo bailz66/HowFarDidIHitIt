@@ -4,7 +4,9 @@ import android.content.Context
 import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.SetOptions
 import com.smacktrack.golf.domain.Club
 import com.smacktrack.golf.ui.AppSettings
 import com.smacktrack.golf.ui.DistanceUnit
@@ -108,6 +110,36 @@ class ShotRepository(context: Context) {
             }
         }
         // SharedPrefs path: caller manages the full list via saveShots()
+    }
+
+    // ── Global counters ────────────────────────────────────────────────────
+
+    suspend fun incrementGlobalShotCount() {
+        if (uid == null) return
+        try {
+            firestore.document("stats/global")
+                .update("totalShots", FieldValue.increment(1))
+                .await()
+        } catch (e: Exception) {
+            // Document doesn't exist yet — create with merge to avoid race conditions
+            try {
+                firestore.document("stats/global")
+                    .set(mapOf("totalShots" to 1L), SetOptions.merge())
+                    .await()
+            } catch (e2: Exception) {
+                Log.w("ShotRepository", "Failed to increment global shot count", e2)
+            }
+        }
+    }
+
+    suspend fun getGlobalShotCount(): Long {
+        return try {
+            val doc = firestore.document("stats/global").get().await()
+            doc.getLong("totalShots") ?: 0L
+        } catch (e: Exception) {
+            Log.w("ShotRepository", "Failed to read global shot count", e)
+            0L
+        }
     }
 
     // ── Settings ─────────────────────────────────────────────────────────────

@@ -44,9 +44,9 @@ class AchievementCheckerTest {
     }
 
     @Test
-    @DisplayName("SHOT_COUNT Silver unlocks at 25 shots")
+    @DisplayName("SHOT_COUNT Silver unlocks at 50 shots")
     fun shotCountSilver() {
-        val shots = (1..25).map { shot(timestampMs = it.toLong()) }
+        val shots = (1..50).map { shot(timestampMs = it.toLong()) }
         val result = checkAchievements(shots, shots.last(), emptySet(), allClubs)
         val keys = storageKeys(result)
         assertTrue("SHOT_COUNT_BRONZE" in keys)
@@ -54,9 +54,9 @@ class AchievementCheckerTest {
     }
 
     @Test
-    @DisplayName("SHOT_COUNT Gold unlocks at 100 shots with Bronze+Silver backfill")
+    @DisplayName("SHOT_COUNT Gold unlocks at 250 shots with Bronze+Silver backfill")
     fun shotCountGoldBackfill() {
-        val shots = (1..100).map { shot(timestampMs = it.toLong()) }
+        val shots = (1..250).map { shot(timestampMs = it.toLong()) }
         val result = checkAchievements(shots, shots.last(), emptySet(), allClubs)
         val keys = storageKeys(result)
         assertTrue("SHOT_COUNT_BRONZE" in keys)
@@ -75,9 +75,9 @@ class AchievementCheckerTest {
     }
 
     @Test
-    @DisplayName("BOMBER Gold unlocks for Driver over 250 yards, backfills Bronze+Silver")
+    @DisplayName("BOMBER Gold unlocks for Driver over 300 yards, backfills Bronze+Silver")
     fun bomberGoldBackfill() {
-        val newShot = shot(club = Club.DRIVER, yards = 260)
+        val newShot = shot(club = Club.DRIVER, yards = 310)
         val result = checkAchievements(listOf(newShot), newShot, emptySet(), allClubs)
         val keys = storageKeys(result)
         assertTrue("BOMBER_BRONZE" in keys)
@@ -146,12 +146,12 @@ class AchievementCheckerTest {
     // ── WEATHERPROOF ────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("WEATHERPROOF Silver unlocks with 3 different conditions")
+    @DisplayName("WEATHERPROOF Silver unlocks with 3 different weather groups")
     fun weatherproofSilver() {
         val shots = listOf(
-            shot(weather = "Clear", timestampMs = 1000),
-            shot(weather = "Cloudy", timestampMs = 2000),
-            shot(weather = "Rain", timestampMs = 3000)
+            shot(weather = "Clear sky", timestampMs = 1000),
+            shot(weather = "Moderate rain", timestampMs = 2000),
+            shot(weather = "Slight snowfall", timestampMs = 3000)
         )
         val result = checkAchievements(shots, shots.last(), emptySet(), allClubs)
         val keys = storageKeys(result)
@@ -159,13 +159,25 @@ class AchievementCheckerTest {
         assertTrue("WEATHERPROOF_SILVER" in keys)
     }
 
+    @Test
+    @DisplayName("WEATHERPROOF counts groups not labels — Clear sky and Partly cloudy are same group")
+    fun weatherproofGroupsNotLabels() {
+        val shots = listOf(
+            shot(weather = "Clear sky", timestampMs = 1000),
+            shot(weather = "Partly cloudy", timestampMs = 2000)
+        )
+        val result = checkAchievements(shots, shots.last(), emptySet(), allClubs)
+        // Both map to "Clear" group — only 1 distinct group, not enough for Bronze (2)
+        assertTrue("WEATHERPROOF_BRONZE" !in storageKeys(result))
+    }
+
     // ── IRON_MAN ────────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("IRON_MAN Gold unlocks at 50 iron shots")
+    @DisplayName("IRON_MAN Gold unlocks at 200 iron shots")
     fun ironManGold() {
         val ironClubs = Club.entries.filter { it.category == Club.Category.IRON }
-        val shots = (1..50).map { shot(club = ironClubs[it % ironClubs.size], timestampMs = it.toLong()) }
+        val shots = (1..200).map { shot(club = ironClubs[it % ironClubs.size], timestampMs = it.toLong()) }
         val result = checkAchievements(shots, shots.last(), emptySet(), allClubs)
         val keys = storageKeys(result)
         assertTrue("IRON_MAN_BRONZE" in keys)
@@ -217,7 +229,7 @@ class AchievementCheckerTest {
     @Test
     @DisplayName("Auto-backfill only emits missing tiers")
     fun backfillSkipsAlreadyEarned() {
-        val shots = (1..100).map { shot(timestampMs = it.toLong()) }
+        val shots = (1..250).map { shot(timestampMs = it.toLong()) }
         // Bronze already earned
         val alreadyUnlocked = setOf("SHOT_COUNT_BRONZE")
         val result = checkAchievements(shots, shots.last(), alreadyUnlocked, allClubs)
@@ -242,15 +254,11 @@ class AchievementCheckerTest {
     }
 
     @Test
-    @DisplayName("SNIPER Gold unlocks with 5 same-club shots within 10 yd spread")
+    @DisplayName("SNIPER Gold unlocks with 8 same-club shots within 10 yd spread")
     fun sniperGold() {
-        val shots = listOf(
-            shot(club = Club.SEVEN_IRON, yards = 150, timestampMs = 1000),
-            shot(club = Club.SEVEN_IRON, yards = 152, timestampMs = 2000),
-            shot(club = Club.SEVEN_IRON, yards = 148, timestampMs = 3000),
-            shot(club = Club.SEVEN_IRON, yards = 155, timestampMs = 4000),
-            shot(club = Club.SEVEN_IRON, yards = 153, timestampMs = 5000)
-        )
+        val shots = (1..8).map {
+            shot(club = Club.SEVEN_IRON, yards = 148 + (it % 3), timestampMs = it * 1000L)
+        }
         val result = checkAchievements(shots, shots.last(), emptySet(), allClubs)
         val keys = storageKeys(result)
         assertTrue("SNIPER_BRONZE" in keys)
@@ -261,14 +269,12 @@ class AchievementCheckerTest {
     // ── HOT_STREAK ──────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("HOT_STREAK Silver unlocks with 3 consecutive above club avg")
+    @DisplayName("HOT_STREAK Silver unlocks with 5 consecutive above club avg")
     fun hotStreakSilver() {
         val baseShots = (1..10).map { shot(yards = 140, timestampMs = it.toLong()) }
-        val hotShots = listOf(
-            shot(yards = 170, timestampMs = 11),
-            shot(yards = 175, timestampMs = 12),
-            shot(yards = 180, timestampMs = 13)
-        )
+        val hotShots = (1..5).map {
+            shot(yards = 170 + it, timestampMs = 10L + it)
+        }
         val allShots = baseShots + hotShots
         val result = checkAchievements(allShots, hotShots.last(), emptySet(), allClubs)
         val keys = storageKeys(result)
@@ -279,14 +285,11 @@ class AchievementCheckerTest {
     // ── PB_MACHINE ──────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("PB_MACHINE Silver unlocks with 3 all-time PB breaks")
+    @DisplayName("PB_MACHINE Silver unlocks with 5 all-time PB breaks")
     fun pbMachineSilver() {
-        val shots = listOf(
-            shot(club = Club.DRIVER, yards = 200, timestampMs = 1000),
-            shot(club = Club.DRIVER, yards = 210, timestampMs = 2000),
-            shot(club = Club.DRIVER, yards = 220, timestampMs = 3000),
-            shot(club = Club.DRIVER, yards = 230, timestampMs = 4000)
-        )
+        val shots = (0..5).map {
+            shot(club = Club.DRIVER, yards = 200 + it * 10, timestampMs = (it + 1) * 1000L)
+        }
         val result = checkAchievements(shots, shots.last(), emptySet(), allClubs)
         val keys = storageKeys(result)
         assertTrue("PB_MACHINE_BRONZE" in keys)
@@ -296,14 +299,10 @@ class AchievementCheckerTest {
     // ── DEDICATED ───────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("DEDICATED Bronze unlocks with 3 sessions")
+    @DisplayName("DEDICATED Bronze unlocks with 5 sessions")
     fun dedicatedBronze() {
         val gap = 31 * 60 * 1000L // 31 min gap
-        val shots = listOf(
-            shot(timestampMs = 1000),
-            shot(timestampMs = 1000 + gap),
-            shot(timestampMs = 1000 + gap * 2)
-        )
+        val shots = (0..4).map { shot(timestampMs = 1000 + gap * it) }
         val result = checkAchievements(shots, shots.last(), emptySet(), allClubs)
         assertTrue("DEDICATED_BRONZE" in storageKeys(result))
     }
@@ -311,12 +310,9 @@ class AchievementCheckerTest {
     @Test
     @DisplayName("DEDICATED does not unlock without enough sessions")
     fun dedicatedNotEnough() {
-        // All shots within one session
-        val shots = listOf(
-            shot(timestampMs = 1000),
-            shot(timestampMs = 2000),
-            shot(timestampMs = 3000)
-        )
+        val gap = 31 * 60 * 1000L
+        // Only 4 sessions — not enough for Bronze (5)
+        val shots = (0..3).map { shot(timestampMs = 1000 + gap * it) }
         val result = checkAchievements(shots, shots.last(), emptySet(), allClubs)
         assertTrue("DEDICATED_BRONZE" !in storageKeys(result))
     }

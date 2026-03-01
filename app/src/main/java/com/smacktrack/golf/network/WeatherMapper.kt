@@ -76,3 +76,22 @@ fun degreesToCompass(degrees: Int): String {
  * Converts Celsius to Fahrenheit.
  */
 fun celsiusToFahrenheit(celsius: Double): Double = celsius * 9.0 / 5.0 + 32.0
+
+/**
+ * Maps a weather description label to one of 7 broad groups:
+ * Clear, Fog, Drizzle, Rain, Snow, Showers, Thunderstorm.
+ */
+fun weatherGroup(description: String): String = when {
+    description.contains("thunderstorm", ignoreCase = true) -> "Thunderstorm"
+    description.contains("snow shower", ignoreCase = true) -> "Showers"
+    description.contains("rain shower", ignoreCase = true) -> "Showers"
+    description.contains("snow", ignoreCase = true) -> "Snow"
+    description.contains("freezing rain", ignoreCase = true) -> "Rain"
+    description.contains("rain", ignoreCase = true) -> "Rain"
+    description.contains("drizzle", ignoreCase = true) -> "Drizzle"
+    description.contains("fog", ignoreCase = true) -> "Fog"
+    description.contains("clear", ignoreCase = true) -> "Clear"
+    description.contains("cloudy", ignoreCase = true) -> "Clear"
+    description.contains("overcast", ignoreCase = true) -> "Clear"
+    else -> description
+}

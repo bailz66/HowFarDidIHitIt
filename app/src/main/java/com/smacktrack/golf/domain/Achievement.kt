@@ -17,20 +17,20 @@ enum class AchievementCategory(
         "Shot Count", "\uD83C\uDFAF",
         listOf(
             TierDef(1, "Record your first shot"),
-            TierDef(25, "Track 25 shots"),
-            TierDef(100, "Track 100 shots"),
+            TierDef(50, "Track 50 shots"),
             TierDef(250, "Track 250 shots"),
-            TierDef(500, "Track 500 shots")
+            TierDef(1000, "Track 1,000 shots"),
+            TierDef(2500, "Track 2,500 shots")
         )
     ),
     BOMBER(
         "Bomber", "\uD83D\uDCA3",
         listOf(
             TierDef(200, "Driver over 200 yards"),
-            TierDef(225, "Driver over 225 yards"),
             TierDef(250, "Driver over 250 yards"),
-            TierDef(275, "Driver over 275 yards"),
-            TierDef(300, "Driver over 300 yards")
+            TierDef(300, "Driver over 300 yards"),
+            TierDef(325, "Driver over 325 yards"),
+            TierDef(350, "Driver over 350 yards")
         )
     ),
     FULL_BAG(
@@ -47,90 +47,90 @@ enum class AchievementCategory(
         "PB Machine", "\uD83D\uDE80",
         listOf(
             TierDef(1, "Beat your PB once"),
-            TierDef(3, "Beat your PB 3 times"),
-            TierDef(10, "Beat your PB 10 times"),
-            TierDef(25, "Beat your PB 25 times"),
-            TierDef(50, "Beat your PB 50 times")
+            TierDef(5, "Beat your PB 5 times"),
+            TierDef(20, "Beat your PB 20 times"),
+            TierDef(50, "Beat your PB 50 times"),
+            TierDef(100, "Beat your PB 100 times")
         )
     ),
     WIND_WARRIOR(
         "Wind Warrior", "\uD83C\uDF2C\uFE0F",
         listOf(
             TierDef(15, "Shot in 15+ km/h wind"),
-            TierDef(20, "Shot in 20+ km/h wind"),
-            TierDef(30, "Shot in 30+ km/h wind"),
-            TierDef(40, "Shot in 40+ km/h wind"),
-            TierDef(50, "Shot in 50+ km/h wind")
+            TierDef(25, "Shot in 25+ km/h wind"),
+            TierDef(35, "Shot in 35+ km/h wind"),
+            TierDef(45, "Shot in 45+ km/h wind"),
+            TierDef(60, "Shot in 60+ km/h wind")
         )
     ),
     SNIPER(
         "Sniper", "\uD83C\uDFF9",
         listOf(
             TierDef(3, "3 same-club shots within 15 yds", secondaryThreshold = 15),
-            TierDef(5, "5 same-club shots within 15 yds", secondaryThreshold = 15),
-            TierDef(5, "5 same-club shots within 10 yds", secondaryThreshold = 10),
-            TierDef(7, "7 same-club shots within 10 yds", secondaryThreshold = 10),
-            TierDef(10, "10 same-club shots within 10 yds", secondaryThreshold = 10)
+            TierDef(5, "5 same-club shots within 12 yds", secondaryThreshold = 12),
+            TierDef(8, "8 same-club shots within 10 yds", secondaryThreshold = 10),
+            TierDef(12, "12 same-club shots within 8 yds", secondaryThreshold = 8),
+            TierDef(15, "15 same-club shots within 5 yds", secondaryThreshold = 5)
         )
     ),
     HOT_STREAK(
         "Hot Streak", "\uD83D\uDD25",
         listOf(
-            TierDef(2, "2 consecutive above club avg"),
             TierDef(3, "3 consecutive above club avg"),
             TierDef(5, "5 consecutive above club avg"),
-            TierDef(7, "7 consecutive above club avg"),
-            TierDef(10, "10 consecutive above club avg")
+            TierDef(8, "8 consecutive above club avg"),
+            TierDef(12, "12 consecutive above club avg"),
+            TierDef(20, "20 consecutive above club avg")
         )
     ),
     WEATHERPROOF(
         "Weatherproof", "\u2614",
         listOf(
-            TierDef(2, "Shots in 2 weather conditions"),
-            TierDef(3, "Shots in 3 weather conditions"),
-            TierDef(4, "Shots in 4 weather conditions"),
-            TierDef(5, "Shots in 5 weather conditions"),
-            TierDef(6, "Shots in 6 weather conditions")
+            TierDef(2, "Play in 2 weather types"),
+            TierDef(3, "Play in 3 weather types"),
+            TierDef(4, "Play in 4 weather types"),
+            TierDef(5, "Play in 5 weather types"),
+            TierDef(7, "Play in all 7 weather types")
         )
     ),
     IRON_MAN(
         "Iron Man", "\uD83E\uDDBE",
         listOf(
             TierDef(10, "10 shots with irons"),
-            TierDef(25, "25 shots with irons"),
             TierDef(50, "50 shots with irons"),
-            TierDef(100, "100 shots with irons"),
-            TierDef(200, "200 shots with irons")
+            TierDef(200, "200 shots with irons"),
+            TierDef(500, "500 shots with irons"),
+            TierDef(1500, "1,500 shots with irons")
         )
     ),
     DAWN_PATROL(
         "Dawn Patrol", "\uD83C\uDF05",
         listOf(
             TierDef(1, "1 shot before 7 AM"),
-            TierDef(5, "5 shots before 7 AM"),
             TierDef(10, "10 shots before 7 AM"),
-            TierDef(25, "25 shots before 7 AM"),
-            TierDef(50, "50 shots before 7 AM")
+            TierDef(30, "30 shots before 7 AM"),
+            TierDef(75, "75 shots before 7 AM"),
+            TierDef(150, "150 shots before 7 AM")
         )
     ),
     NIGHT_OWL(
         "Night Owl", "\uD83C\uDF19",
         listOf(
             TierDef(1, "1 shot after 8 PM"),
-            TierDef(5, "5 shots after 8 PM"),
             TierDef(10, "10 shots after 8 PM"),
-            TierDef(25, "25 shots after 8 PM"),
-            TierDef(50, "50 shots after 8 PM")
+            TierDef(30, "30 shots after 8 PM"),
+            TierDef(75, "75 shots after 8 PM"),
+            TierDef(150, "150 shots after 8 PM")
         )
     ),
     DEDICATED(
         "Dedicated", "\uD83D\uDCC5",
         listOf(
-            TierDef(3, "3 practice sessions"),
-            TierDef(10, "10 practice sessions"),
-            TierDef(25, "25 practice sessions"),
+            TierDef(5, "5 practice sessions"),
+            TierDef(20, "20 practice sessions"),
             TierDef(50, "50 practice sessions"),
-            TierDef(100, "100 practice sessions")
+            TierDef(100, "100 practice sessions"),
+            TierDef(200, "200 practice sessions")
         )
     );
 

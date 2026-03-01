@@ -2,6 +2,57 @@
 
 Android golf GPS distance tracking app built with Jetpack Compose + Material 3.
 
+## Product Philosophy
+
+**Simplicity is the core of the product.** The three things that matter:
+
+1. **Smack** — tap where you hit the ball
+2. **Track** — walk to where it landed, tap to measure
+3. **Club Selection** — pick your club so distances are grouped correctly
+
+Everything else (achievements, analytics, cloud sync, sharing, weather) is supplementary. Never let extras complicate the core flow. The app should feel instant and obvious — no tutorials needed.
+
+## Architecture
+
+```
+com.smacktrack.golf/
+├── MainActivity.kt              # Single-activity, Scaffold + 3-tab nav
+├── domain/
+│   ├── Club.kt                  # 18 clubs (DRIVER→LOB_WEDGE), 4 categories
+│   ├── GpsCoordinate.kt
+│   ├── Achievement.kt           # 12 categories × 5 tiers = 60 achievements
+│   └── AchievementChecker.kt    # Pure function, no side effects
+├── location/
+│   ├── LocationProvider.kt      # FusedLocationProviderClient wrapper
+│   ├── GpsCalibrator.kt         # Accuracy-weighted multi-sample calibration
+│   ├── HaversineCalculator.kt   # Haversine distance (lat/lon → meters/yards)
+│   └── WindCalculator.kt        # TrackMan-calibrated wind physics
+├── network/
+│   ├── WeatherService.kt        # Open-Meteo API calls
+│   └── WeatherMapper.kt         # JSON deserialization
+├── data/
+│   ├── ShotRepository.kt        # Hybrid local + Firestore persistence
+│   ├── AchievementRepository.kt # Achievement persistence + migration
+│   ├── AuthManager.kt           # Firebase Auth + Credential Manager
+│   └── ShotSerialization.kt     # ShotResult ↔ JSON/Firestore
+├── validation/
+│   └── ShotValidator.kt
+└── ui/
+    ├── ShotTrackerViewModel.kt  # Central state (StateFlow<UiState>)
+    ├── ShotDisplayUtils.kt      # Formatting extensions (distances, wind, temp)
+    ├── share/
+    │   ├── ShareUtil.kt         # PNG → FileProvider → share intent
+    │   └── ShotCardRenderer.kt  # Canvas-based shot card image
+    ├── theme/                   # Material 3, Poppins font, club/wind colors
+    └── screen/
+        ├── ShotTrackerScreen.kt     # Core: Smack → Walk → Track → Result
+        ├── AnalyticsScreen.kt       # Club stats, trends, sparklines
+        ├── HistoryScreen.kt         # Session-grouped shot history
+        ├── SettingsScreen.kt        # Units, clubs, cloud sync, achievements
+        ├── AchievementGallery.kt    # Achievement grid + detail dialog
+        └── ChartComponents.kt      # Reusable charts, counters, session cards
+```
+
 ## Environment
 
 - **Android Studio**: `F:\android-studio\`
@@ -68,15 +119,38 @@ export JAVA_HOME="F:/android-studio/jbr"
 ./gradlew testDebugUnitTest
 ```
 
-## Features
+## Build Config
 
-- **Smack page** — centered Smack button, last 3 recent shots (swipe left to delete), donate tile
-- **Walking page** — live distance counter, club selection chips, Track button with extended GPS calibration
-- **History page** — full shot history with swipe-to-delete
-- **Result page** — distance card with weather, wind arrow, wind-adjusted carry
-- **Settings** — distance/wind/temperature units, trajectory, club toggles
-- **GPS calibration** — accuracy-weighted multi-sample calibration; fresh GPS warmup on each new shot; start 3.5s, end 4.5s
-- **Delete shots** — swipe left on any shot (recent or history) to delete
+- **compileSdk**: 36, **minSdk**: 33, **targetSdk**: 36
+- **Java**: VERSION_11, **Kotlin**: 2.0.21
+- **Compose BOM**: 2024.09.00
+- **Release signing**: env vars (KEYSTORE_FILE, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD)
+- **ProGuard**: minification + resource shrinking enabled for release
+
+## Core Features
+
+### Shot Flow (the product)
+- **Smack page** — centered Smack button, last 3 recent shots, session summary card
+- **Walking page** — live distance counter, club selection chips, Track button
+- **Result page** — distance card with weather, wind arrow, wind-adjusted carry, share button
+- **GPS calibration** — accuracy-weighted multi-sample calibration; start 3.5s, end 2s
+
+### Supplementary Features
+- **History page** — session-grouped shot history with pagination, delete confirmation
+- **Analytics (Stats tab)** — per-club AVG/LNG/SHT, sparklines, scatter strips, trend analysis, time period filtering
+- **Settings** — distance/wind/temperature units, trajectory (Low/Mid/High), club toggles
+- **Achievements** — 12 categories × 5 tiers (Bronze→Diamond), gallery dialog, unlock banners
+- **Cloud sync** — Google Sign-in, Firestore sync, local SharedPreferences fallback
+- **Share** — Canvas-rendered shot card PNG shared via FileProvider
+- **Weather** — Open-Meteo API, wind-adjusted carry (TrackMan-calibrated physics)
+
+## Key Data Models
+
+**ShotResult**: club, distanceYards, distanceMeters, weatherDescription, temperatureF/C, windSpeedKmh, windDirectionCompass, windDirectionDegrees, shotBearingDegrees, timestampMs
+
+**AppSettings**: distanceUnit (YARDS/METERS), windUnit (KMH/MPH), temperatureUnit (F/C), trajectory (LOW/MID/HIGH with multiplier), enabledClubs
+
+**Club**: 18 clubs in 4 categories (WOOD, HYBRID, IRON, WEDGE), each with displayName, sortOrder (1-18)
 
 ## Firebase / Firestore
 
@@ -85,6 +159,10 @@ export JAVA_HOME="F:/android-studio/jbr"
 - **Firestore**: test mode (rules expire after 30 days — add security rules before publishing)
 - **Auth**: Google Sign-in via Credential Manager API
 - **`app/google-services.json`**: downloaded from Firebase Console — do NOT commit to public repos
+- **Data structure**:
+  - `users/{uid}/shots/{timestampMs}` — shot documents
+  - `users/{uid}/settings/prefs` — settings document
+  - `users/{uid}/achievements/{storageKey}` — achievement documents
 
 ### SHA-1 Fingerprints (registered in Firebase Console → Project settings → Your apps)
 
@@ -98,10 +176,23 @@ To get a SHA-1:
 
 ## Key Dependencies
 
-- `play-services-location` — GPS via FusedLocationProviderClient
+- `play-services-location` 21.3.0 — GPS via FusedLocationProviderClient
 - `firebase-firestore-ktx` / `firebase-auth-ktx` — Firestore + Firebase Auth (via BOM 33.7.0)
-- `credentials-play-services-auth` / `googleid` — Credential Manager Google Sign-in
-- `org.json:json` — test-only dependency for WeatherService JSON parsing tests
+- `credentials-play-services-auth` 1.3.0 / `googleid` 1.1.1 — Credential Manager Google Sign-in
+- `org.json:json` 20231013 — test-only dependency for WeatherService JSON parsing tests
+- `junit5` 5.10.2 — unit testing framework
+
+## CI/CD
+
+### GitHub Actions (`.github/workflows/ci.yml`)
+- Triggers: push to master/main/release/*, pull requests
+- Jobs: lint → unit-test → instrumented-test (API 33 emulator) → build
+- Artifacts: test reports, debug APK
+
+### Release Pipeline (`.github/workflows/release.yml`)
+- Triggers: tags matching `v*`
+- Jobs: test → release (bundleRelease + assembleRelease)
+- Creates GitHub release with auto-generated notes
 
 ## GitHub
 

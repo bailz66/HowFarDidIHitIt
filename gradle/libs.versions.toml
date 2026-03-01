@@ -32,6 +32,7 @@ play-services-location = { group = "com.google.android.gms", name = "play-servic
 firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }
 firebase-firestore = { group = "com.google.firebase", name = "firebase-firestore-ktx" }
 firebase-auth = { group = "com.google.firebase", name = "firebase-auth-ktx" }
+firebase-analytics = { group = "com.google.firebase", name = "firebase-analytics-ktx" }
 credentials-play-services = { group = "androidx.credentials", name = "credentials-play-services-auth", version.ref = "credentialsPlayServices" }
 credentials = { group = "androidx.credentials", name = "credentials", version.ref = "credentialsPlayServices" }
 googleid = { group = "com.google.android.libraries.identity.googleid", name = "googleid", version.ref = "googleid" }

@@ -241,24 +241,25 @@ android {
 ```
 SmackTrack is the simplest way to measure your golf shot distances.
 
-No subscriptions. No ads. No account needed. Just tap, walk, and tap.
+No subscriptions. No ads. Just tap, walk, and tap.
 
 HOW IT WORKS:
 1. Select your club (Driver through Lob Wedge)
-2. Tap "Mark Start" at your ball
-3. Walk or drive to where it landed
-4. Tap "Mark End" — see your distance instantly
+2. Tap SMACK at your ball
+3. Walk to where it landed — live distance updates as you go
+4. Tap TRACK — see your distance instantly
 
 FEATURES:
 • GPS-calibrated distance measurement (yards & meters)
-• Live distance tracking as you walk
-• Automatic weather recording (temperature, conditions, wind)
-• Shot history and per-club analytics
-• Filter stats by club, date, weather, and temperature
-• Works offline — no internet required for shot tracking
+• Live distance tracking as you walk (keeps working with screen locked)
+• Wind-adjusted carry distance using real-time weather data
+• Shot history and per-club analytics with sparklines and trends
+• 60 achievements across 12 categories to unlock
+• Optional Google Sign-in to sync across devices
+• Works offline — no account required
 
 PRIVACY:
-Your data stays on your device. No accounts, no cloud sync, no tracking.
+Your shot data stays on your device by default. Optional cloud sync available if you choose to sign in. No ads, no tracking.
 ```
 
 ### Release Process (v1 — Manual)
