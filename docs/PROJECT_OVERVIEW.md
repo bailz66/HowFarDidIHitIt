@@ -9,7 +9,6 @@ Every golfer wants to know their real distances. Range markers lie, memory is un
 ## Core Principles
 - **Simplicity first** — every screen should be obvious without a tutorial
 - **Offline-first** — core functionality works without internet (weather is a nice-to-have overlay)
-- **No accounts** — no signup, no login, no cloud sync, no backend
 - **No ads** — clean, distraction-free experience
 - **Privacy** — GPS data stays on-device; weather API calls are anonymous
 
