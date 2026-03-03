@@ -95,7 +95,7 @@ fun degreesToCompass(degrees: Int): String {
 ## Implementation
 
 ### WeatherService (singleton object)
-Weather is fetched via `HttpURLConnection` with explicit timeouts to prevent indefinite hangs:
+Weather is fetched via `HttpURLConnection` with explicit timeouts and locale-safe URL formatting:
 
 ```kotlin
 object WeatherService {
@@ -106,7 +106,10 @@ object WeatherService {
     suspend fun fetchWeather(lat: Double, lon: Double): WeatherData? =
         withContext(Dispatchers.IO) {
             try {
-                val url = "$BASE_URL?latitude=$lat&longitude=$lon" +
+                // Locale.US ensures decimal points (not commas) in coordinates
+                val rlat = String.format(Locale.US, "%.2f", lat)
+                val rlon = String.format(Locale.US, "%.2f", lon)
+                val url = "$BASE_URL?latitude=$rlat&longitude=$rlon" +
                     "&current=temperature_2m,weather_code,wind_speed_10m,wind_direction_10m"
                 val connection = URL(url).openConnection() as HttpURLConnection
                 connection.connectTimeout = CONNECT_TIMEOUT_MS
@@ -117,22 +120,12 @@ object WeatherService {
                 null
             }
         }
-
-    internal fun parseWeatherJson(json: String): WeatherData? =
-        try {
-            val root = JSONObject(json)
-            val current = root.getJSONObject("current")
-            WeatherData(
-                temperatureCelsius = current.getDouble("temperature_2m"),
-                weatherCode = current.getInt("weather_code"),
-                windSpeedKmh = current.getDouble("wind_speed_10m"),
-                windDirectionDegrees = current.getInt("wind_direction_10m")
-            )
-        } catch (_: Exception) {
-            null
-        }
 }
 ```
+
+**Locale safety**: The URL formatting uses `Locale.US` to prevent comma decimal separators (e.g., `33,75` instead of `33.75`) which would break the API call in EU/South American locales.
+
+**NaN guard**: Parsed temperature and wind values are checked for NaN — if either is NaN, the entire response is discarded and fallback weather is used.
 
 ### Why No Caching?
 - Weather is fetched once per shot (when the user taps "Mark End")
@@ -144,12 +137,16 @@ object WeatherService {
 
 | Scenario | Behavior |
 |----------|----------|
-| No internet | Shot saves with fallback weather (zeroed values). No error shown to user. |
+| No internet | Shot saves with fallback weather (70°F/21°C baseline, zero wind). No error shown to user. |
 | API returns 500 | Same as no internet — silent fallback. |
 | Connect timeout (> 5s) | Exception caught, returns null → fallback weather. |
 | Read timeout (> 10s) | Exception caught, returns null → fallback weather. |
 | Malformed response | `parseWeatherJson` returns null → fallback weather. |
+| NaN values in response | Detected and discarded → fallback weather. |
+| Locale with comma decimals | `Locale.US` formatting ensures dots in URL coordinates. |
 | GPS not available | lat/lon are 0.0 — weather fetch skipped entirely. |
+
+**Fallback temperature**: 70°F (21.1°C) — chosen because this is the baseline where temperature has zero effect on wind calculations. Previous fallback of 0°F would produce a false -7yd temperature penalty.
 
 **Core principle:** Weather is a nice-to-have. It must NEVER block or delay shot tracking.
 

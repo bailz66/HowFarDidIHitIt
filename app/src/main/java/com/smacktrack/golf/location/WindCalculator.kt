@@ -3,6 +3,7 @@ package com.smacktrack.golf.location
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.pow
+import kotlin.math.roundToInt
 import kotlin.math.sin
 
 /**
@@ -98,7 +99,7 @@ object WindCalculator {
             -(headwindMph.pow(1.3) * 0.8 * trajectoryMultiplier * (distanceYards / 150.0))
         }
 
-        return effect.toInt()
+        return effect.roundToInt()
     }
 
     /**
@@ -143,7 +144,7 @@ object WindCalculator {
      */
     fun estimateTemperatureEffectYards(distanceYards: Int, temperatureF: Int): Int {
         if (distanceYards <= 0) return 0
-        return (distanceYards * (temperatureF - 70) / 1000.0).toInt()
+        return (distanceYards * (temperatureF - 70) / 1000.0).roundToInt()
     }
 
     /**

@@ -9,33 +9,45 @@ The core feature of the app. A golfer hits a shot, wants to know how far it went
 ```
 [Open App]
     ↓
-[Grant Location Permission] ← Requested once at launch via MainActivity
+[Grant Location + Notification Permission] ← Requested once at launch
     ↓
-[Select Club] ← Scrollable list: Driver → Lob Wedge
+[Select Club] ← Scrollable chips: Driver → Lob Wedge
     ↓
-[Tap "Mark Start"]
+[Tap "SMACK"]
     ↓
-[Calibrating... (2.5s)] ← GPS samples collected, weighted, outliers rejected
+[Foreground service starts] ← Notification: "Tracking your shot..."
+[Screen keep-awake enabled]
+[15-min shot timeout begins]
+    ↓
+[Calibrating... (3.5s)] ← GPS samples collected, weighted, outliers rejected
     ↓
 [Start Pinned ✓]
     ↓
-[Walk/drive to ball]
-    ↓                   ← Live distance updates on screen (yards + meters)
+[Walk/drive to ball] ← GPS alive even with screen locked
+    ↓               ← Live distance updates on screen (yards + meters)
 [Arrive at ball]
     ↓
-[Tap "Mark End"]
+[Tap "TRACK"]
     ↓
-[Calibrating... (2.5s)] ← Same GPS calibration for end position
-    ↓                   ← Weather fetched in parallel via async
+[Calibrating... (2s)] ← GPS calibration for end position
+    ↓                  ← Weather fetched in parallel via async
 [End Pinned ✓]
     ↓
 [Shot Result Display]
     ├── Club: Driver
     ├── Distance: 245 yards (224m)
+    ├── GPS Accuracy: ±3 yd
     ├── Weather: 72°F, Clear sky, Wind 8mph NW
-    └── [Save ✓ — automatic to in-memory history]
+    ├── Wind-adjusted carry: +5 yards (tailwind)
+    └── [Save ✓ — persisted to SharedPreferences + Firestore]
+    ↓
+[Foreground service stops, screen keep-awake cleared, timeout cancelled]
     ↓
 [Ready for next shot]
+
+TIMEOUT (15 min, no TRACK):
+    → Toast: "Shot timed out after 15 minutes"
+    → Auto-reset to club selection
 ```
 
 ## GPS Calibration Algorithm
@@ -44,8 +56,8 @@ The core feature of the app. A golfer hits a shot, wants to know how far it went
 GPS on phones is accurate to ~3-5 meters under open sky, which is fine for golf distances. But a single GPS fix can occasionally spike 10-20m off due to atmospheric interference, multipath reflection, or satellite geometry. The calibration algorithm smooths out this noise.
 
 ### Algorithm (Inverse-Variance Weighted)
-1. **Trigger**: User taps "Mark Start" or "Mark End"
-2. **Collection**: GPS fixes collected at 500ms intervals for **2.5 seconds** via `LocationProvider`
+1. **Trigger**: User taps "SMACK" or "TRACK"
+2. **Collection**: GPS fixes collected at 500ms intervals — **3.5 seconds** for start, **2 seconds** for end — via `LocationProvider`
    - Uses `FusedLocationProviderClient` with `PRIORITY_HIGH_ACCURACY`
    - Each sample includes latitude, longitude, and reported accuracy in meters
 3. **Cold-Start Rejection**: First GPS sample is discarded (often inaccurate due to GPS cold-start jitter)
@@ -115,18 +127,45 @@ At golf distances (50-400 yards), this is accurate to within centimeters — far
 - Clubs can be enabled/disabled in Settings to match your bag
 - Default selection: Driver (most common first shot)
 
+## Foreground Service
+
+A lightweight foreground service (`ShotTrackingService`) keeps the app's process priority elevated during tracking, ensuring GPS updates continue when the screen is locked. The service is a **notification-only shell** — it does not own GPS collection.
+
+- **Start**: When user taps "SMACK" after GPS calibration succeeds
+- **Stop**: When user taps "TRACK", resets the shot, or the 15-minute timeout fires
+- **Notification**: "Tracking your shot..." — tap to bring the app to front; IMPORTANCE_LOW (silent)
+- **No `ACCESS_BACKGROUND_LOCATION`** needed — foreground service counts as "foreground" access
+- **No WakeLock** — `FLAG_KEEP_SCREEN_ON` on the Activity window is simpler and auto-releases
+
+## Shot Timeout
+
+A 15-minute coroutine timer starts when the user taps "SMACK". If "TRACK" is not tapped within that window:
+- Toast: "Shot timed out after 15 minutes"
+- Auto-reset to club selection (calls `nextShot()`)
+- Foreground service stopped, screen keep-awake cleared
+
+## Distance Validation
+
+After Haversine calculation, distances are validated:
+- **NaN or infinite** → distance set to 0, toast warning shown
+- **> 500 yards** → capped at 500, toast: "GPS reading seems off — distance capped at 500 yards"
+
 ## Edge Cases
 
 | Scenario | Handling |
 |----------|----------|
 | GPS permissions denied | Permission requested once at launch; tracking disabled until granted |
 | GPS accuracy > 20m | Samples rejected by accuracy gate; calibration may fall back to raw position |
-| User cancels mid-shot | "Reset" button clears start pin, returns to club selection |
-| App backgrounded while walking | Location updates continue via LocationProvider Flow |
+| GPS accuracy < 0.1m | Samples rejected (suspiciously precise, likely spoofed) |
+| User cancels mid-shot | "Reset" button clears start pin, stops service, returns to club selection |
+| Screen locked while walking | Foreground service keeps GPS alive; screen unlocks to live distance |
+| App backgrounded while walking | Foreground service prevents process kill; GPS continues |
 | Very short shot (< 5 yards) | Record normally — could be a chip |
-| Very long shot (> 400 yards) | Record normally — par 5 drive + roll |
-| No club selected | "Mark Start" requires club selection |
-| GPS fix takes too long | 2.5s calibration window collects whatever samples are available |
+| Very long shot (> 500 yards) | Capped at 500 with warning toast |
+| NaN/infinite distance | Set to 0 with warning toast |
+| No club selected | "SMACK" requires club selection |
+| Shot abandoned (15 min) | Auto-reset with toast, service stopped |
+| GPS fix takes too long | Calibration window collects whatever samples are available |
 
 ## Dependencies
 - `com.google.android.gms:play-services-location` — FusedLocationProviderClient
@@ -134,12 +173,17 @@ At golf distances (50-400 yards), this is accurate to within centimeters — far
 
 ## Acceptance Criteria
 - [x] User can select a club from the full list (Driver → Lob Wedge) before starting a shot
-- [x] Tapping "Mark Start" collects GPS samples over ~2.5s and calibrates to a single coordinate
+- [x] Tapping "SMACK" collects GPS samples over ~3.5s and calibrates to a single coordinate
 - [x] A "Calibrating..." indicator is visible during GPS sampling
 - [x] After start pin is set, live distance (yards + meters) updates on screen as user moves
-- [x] Tapping "Mark End" performs the same GPS calibration for the end position
+- [x] Tapping "TRACK" performs GPS calibration (2s) for the end position
 - [x] Shot distance is calculated via Haversine formula, displayed in yards and meters
-- [x] Shot is automatically saved to in-memory history
+- [x] Shot is automatically persisted (SharedPreferences + Firestore if signed in)
 - [x] User can reset/cancel a shot in progress
 - [x] GPS permission requested at launch
 - [x] Calibration uses inverse-variance weighting with MAD outlier rejection
+- [x] Foreground service keeps GPS alive when screen locks
+- [x] Screen stays on during active tracking phases (FLAG_KEEP_SCREEN_ON)
+- [x] 15-minute shot timeout auto-resets abandoned shots
+- [x] GPS accuracy displayed on result screen (warns if >15m)
+- [x] Distance clamped: NaN→0, >500yd→500 with warning toasts

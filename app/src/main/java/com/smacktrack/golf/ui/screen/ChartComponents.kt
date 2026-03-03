@@ -2,6 +2,7 @@ package com.smacktrack.golf.ui.screen
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -43,12 +44,8 @@ import com.smacktrack.golf.location.WindCalculator
 import com.smacktrack.golf.ui.AppSettings
 import com.smacktrack.golf.ui.DistanceUnit
 import com.smacktrack.golf.ui.ShotResult
-import com.smacktrack.golf.ui.WindUnit
 import com.smacktrack.golf.ui.formatTemperature
 import com.smacktrack.golf.ui.formatWindSpeed
-import com.smacktrack.golf.ui.primaryDistance
-import com.smacktrack.golf.ui.primaryUnitLabel
-import com.smacktrack.golf.ui.secondaryDistance
 import com.smacktrack.golf.ui.shortUnitLabel
 import com.smacktrack.golf.ui.theme.ChipUnselectedBg
 import com.smacktrack.golf.ui.theme.DarkGreen
@@ -60,7 +57,6 @@ import com.smacktrack.golf.ui.theme.clubChipColor
 import com.smacktrack.golf.ui.theme.windCategoryColor
 import com.smacktrack.golf.ui.share.ShareUtil
 import com.smacktrack.golf.ui.share.ShotCardRenderer
-import com.smacktrack.golf.ui.windStrengthLabel
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -84,9 +80,8 @@ fun AnimatedCounter(
     color: Color,
     modifier: Modifier = Modifier
 ) {
-    val animatedValue = remember { Animatable(0f) }
+    val animatedValue = remember { Animatable(targetValue.toFloat()) }
     LaunchedEffect(targetValue) {
-        animatedValue.snapTo(0f)
         animatedValue.animateTo(
             targetValue.toFloat(),
             animationSpec = tween(600, easing = FastOutSlowInEasing)
@@ -156,7 +151,7 @@ fun computeSessionSummary(shots: List<ShotResult>, distanceUnit: DistanceUnit): 
     val bestIndex = distances.indices.maxBy { distances[it] }
     return SessionSummary(
         totalShots = shots.size,
-        avgDistance = distances.average().toInt(),
+        avgDistance = distances.average().roundToInt(),
         bestClub = shots[bestIndex].club,
         bestDistance = distances[bestIndex],
         clubsUsedCount = shots.map { it.club }.distinct().size
@@ -266,9 +261,9 @@ fun DistanceSparkline(
     val avgDashColor = Color(0xFF9E9E9E)
     val dotColor = lineColor
 
-    // Draw-in animation: progress 0→1
-    val progress = remember { Animatable(0f) }
-    LaunchedEffect(Unit) {
+    // Draw-in animation: progress 0→1 (keyed on data so it replays on change)
+    val progress = remember(distances) { Animatable(0f) }
+    LaunchedEffect(distances) {
         progress.animateTo(1f, animationSpec = tween(800))
     }
 
@@ -356,7 +351,7 @@ fun MiniSparkline(
 // ── BagSummaryChart ─────────────────────────────────────────────────────────
 
 data class BagClubSummary(
-    val club: com.smacktrack.golf.domain.Club,
+    val club: Club,
     val avg: Int,
     val chipColor: Color
 )
@@ -372,9 +367,9 @@ fun BagSummaryChart(
     val sorted = clubs.sortedByDescending { it.avg }
     val maxAvg = sorted.first().avg.toFloat().coerceAtLeast(1f)
 
-    // Bar grow animation
-    var animateTarget by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { animateTarget = true }
+    // Bar grow animation (keyed on data so it replays on change)
+    var animateTarget by remember(clubs) { mutableStateOf(false) }
+    LaunchedEffect(clubs) { animateTarget = true }
 
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -471,9 +466,9 @@ fun ShotScatterStrip(
     val gridColor = Color(0xFFBDBDBD)
     val avgDashColor = Color(0xFF9E9E9E)
 
-    // Stagger-in animation
-    val scatterProgress = remember { Animatable(0f) }
-    LaunchedEffect(Unit) {
+    // Stagger-in animation (keyed on data so it replays on change)
+    val scatterProgress = remember(distances) { Animatable(0f) }
+    LaunchedEffect(distances) {
         scatterProgress.animateTo(1f, animationSpec = tween(600))
     }
 
@@ -682,13 +677,13 @@ fun WeatherWindStrip(
             }
             WindIndicator(
                 windSpeedLabel = shot.formatWindSpeed(settings.windUnit),
-                windCompass = shot.windDirectionCompass,
                 windDegrees = shot.windDirectionDegrees,
                 shotBearing = shot.shotBearingDegrees,
                 windSpeedKmh = shot.windSpeedKmh,
                 distanceYards = shot.distanceYards,
                 trajectoryMultiplier = settings.trajectory.multiplier,
                 showEffect = true,
+                distanceUnit = settings.distanceUnit,
                 onDirectionTap = if (editable) onDirectionTap else null,
                 onSpeedUp = if (editable) onSpeedUp else null,
                 onSpeedDown = if (editable) onSpeedDown else null
@@ -701,6 +696,8 @@ fun WeatherWindStrip(
 
 @Composable
 fun WeatherAdjustedDistance(shot: ShotResult, settings: AppSettings) {
+    // Skip if no weather data was fetched or if conditions are baseline
+    if (shot.weatherDescription.isBlank()) return
     if (shot.windSpeedKmh <= 0 && shot.temperatureF == 70) return
 
     val weatherEffect = remember(shot, settings) {
@@ -713,11 +710,16 @@ fun WeatherAdjustedDistance(shot: ShotResult, settings: AppSettings) {
             temperatureF = shot.temperatureF
         )
     }
+    // Skip if total effect is trivial (noise, not useful info)
+    if (kotlin.math.abs(weatherEffect.totalWeatherEffectYards) < 3) return
+
     val adjustedYards = (shot.distanceYards - weatherEffect.totalWeatherEffectYards).coerceAtLeast(0)
-    val adjustedMeters = (adjustedYards * 0.9144).toInt()
+    val adjustedMeters = (adjustedYards * 0.9144).roundToInt()
     val adjustedDisplay = if (settings.distanceUnit == DistanceUnit.YARDS) "$adjustedYards" else "$adjustedMeters"
     val unitLabel = shot.shortUnitLabel(settings.distanceUnit)
-    val diff = weatherEffect.totalWeatherEffectYards
+    val diffYds = weatherEffect.totalWeatherEffectYards
+    val diff = if (settings.distanceUnit == DistanceUnit.YARDS) diffYds
+        else (diffYds * 0.9144).roundToInt()
     val diffText = if (diff >= 0) "(+$diff)" else "($diff)"
 
     Spacer(Modifier.height(12.dp))
@@ -757,6 +759,7 @@ fun ShareShotButton(shot: ShotResult, settings: AppSettings, shotHistory: List<S
                     ShareUtil.shareShotCard(context, bitmap)
                 } catch (e: Exception) {
                     android.util.Log.e("ShareShotButton", "Failed to share shot card", e)
+                    android.widget.Toast.makeText(context, "Failed to share shot card", android.widget.Toast.LENGTH_SHORT).show()
                 } finally {
                     bitmap?.recycle()
                 }

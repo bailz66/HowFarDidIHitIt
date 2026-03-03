@@ -13,6 +13,7 @@ package com.smacktrack.golf.ui
  */
 
 import android.app.Application
+import android.util.Log
 import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -41,6 +42,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -117,7 +119,8 @@ data class ShotTrackerUiState(
     val signInError: String? = null,
     val syncStatus: SyncStatus = SyncStatus.IDLE,
     val unlockedAchievements: Map<String, Long> = emptyMap(),
-    val newlyUnlockedAchievements: List<UnlockedAchievement> = emptyList()
+    val newlyUnlockedAchievements: List<UnlockedAchievement> = emptyList(),
+    val gpsAccuracyMeters: Double? = null
 )
 
 class ShotTrackerViewModel(application: Application) : AndroidViewModel(application) {
@@ -146,6 +149,7 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
     private var achievementsCollectionJob: Job? = null
     private var authObserverJob: Job? = null
     private var errorObserverJob: Job? = null
+    private var startAccuracyMeters: Double? = null
 
     init {
         achievementRepository.migrateOldKeys()
@@ -180,15 +184,15 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
                     // migration half-done (data uploaded but local not yet cleared).
                     _uiState.update { it.copy(syncStatus = SyncStatus.SYNCING) }
                     try {
-                        kotlinx.coroutines.withContext(NonCancellable) {
+                        withContext(NonCancellable) {
                             repository.migrateLocalToFirestore()
                             achievementRepository.migrateLocalToFirestore()
                         }
                         toast("Local data migrated to cloud")
                         _uiState.update { it.copy(syncStatus = SyncStatus.SYNCED) }
                     } catch (e: Exception) {
-                        android.util.Log.e("ViewModel", "Migration failed", e)
-                        toast("Migration failed: ${e.message}")
+                        Log.e("ShotTrackerVM", "Migration failed", e)
+                        toast("Migration failed. Please try again.")
                         _uiState.update { it.copy(syncStatus = SyncStatus.ERROR) }
                     }
                 } else {
@@ -240,15 +244,8 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
                 block()
                 _uiState.update { it.copy(syncStatus = SyncStatus.SYNCED) }
             } catch (e: Exception) {
-                android.util.Log.w("ViewModel", "Firestore write failed, retrying once", e)
-                try {
-                    delay(3000)
-                    block()
-                    _uiState.update { it.copy(syncStatus = SyncStatus.SYNCED) }
-                } catch (e2: Exception) {
-                    android.util.Log.e("ViewModel", "Firestore retry failed", e2)
-                    _uiState.update { it.copy(syncStatus = SyncStatus.ERROR) }
-                }
+                Log.e("ViewModel", "Firestore write failed", e)
+                _uiState.update { it.copy(syncStatus = SyncStatus.ERROR) }
             }
         }
     }
@@ -353,6 +350,7 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun markStart() {
+        if (_uiState.value.phase != ShotPhase.CLUB_SELECT) return
         // Default to Driver if no club selected yet
         if (_uiState.value.selectedClub == null) {
             _uiState.update { it.copy(selectedClub = Club.DRIVER) }
@@ -385,6 +383,11 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
                     return@launch
                 }
 
+            startAccuracyMeters = calibrated?.estimatedAccuracyMeters
+
+            // Re-check phase — user may have tapped Reset during calibration
+            if (_uiState.value.phase != ShotPhase.CALIBRATING_START) return@launch
+
             _uiState.update {
                 it.copy(
                     phase = ShotPhase.WALKING,
@@ -400,7 +403,7 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
 
     private suspend fun pollLiveDistance(startCoord: GpsCoordinate) {
         while (_uiState.value.phase == ShotPhase.WALKING) {
-            delay(1000)
+            delay(500)
 
             val snap = gpsState
             if (snap.lat == 0.0 && snap.lon == 0.0) continue
@@ -420,6 +423,7 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
 
     fun markEnd() {
         val state = _uiState.value
+        if (state.phase != ShotPhase.WALKING) return
         val startCoord = state.startCoordinate ?: return
         val club = state.selectedClub ?: return
         val capturedUid = repository.snapshotUid()
@@ -439,6 +443,10 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
             }
 
             val samples = samplesDeferred.await()
+
+            // If user tapped Reset during calibration, abort — don't create a ghost shot
+            if (_uiState.value.phase != ShotPhase.CALIBRATING_END) return@launch
+
             val calibrated = calibrateWeighted(samples)
 
             val endSnap = gpsState
@@ -451,12 +459,23 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
                     startCoord
                 }
 
-            val distanceMeters = haversineMeters(startCoord, endCoord)
-            val distanceYards = metersToYards(distanceMeters)
+            var distanceMeters = haversineMeters(startCoord, endCoord)
+            var distanceYards = metersToYards(distanceMeters)
 
-            // Use real weather or fallback to "Unknown" defaults
+            // Clamp implausible distances (NaN, infinite, or >500 yards)
+            if (distanceYards.isNaN() || distanceYards.isInfinite()) {
+                toast("GPS reading error — distance could not be calculated")
+                distanceYards = 0.0
+                distanceMeters = 0.0
+            } else if (distanceYards > 500) {
+                toast("GPS reading seems off — distance capped at 500 yards")
+                distanceYards = 500.0
+                distanceMeters = 457.2
+            }
+
+            // Use real weather or fallback — 21.1°C (70°F) baseline so temperature effect is zero
             val weather = weatherDeferred.await() ?: WeatherData(
-                temperatureCelsius = 0.0,
+                temperatureCelsius = 21.1,
                 weatherCode = -1,
                 windSpeedKmh = 0.0,
                 windDirectionDegrees = 0
@@ -464,6 +483,10 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
 
             stopLocationUpdates()
             stopTrackingService()
+
+            // Combine start + end accuracy (worst of the two)
+            val endAccuracy = calibrated?.estimatedAccuracyMeters
+            val combinedAccuracy = listOfNotNull(startAccuracyMeters, endAccuracy).maxOrNull()
 
             val shotBearing = bearingDegrees(startCoord, endCoord)
 
@@ -484,15 +507,19 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
             analyticsTracker.logShot(result)
 
             // Update UI immediately — don't block on network
+            var updatedHistory: List<ShotResult> = emptyList()
             _uiState.update {
+                val history = it.shotHistory + result
+                updatedHistory = history
                 it.copy(
                     phase = ShotPhase.RESULT,
                     shotResult = result,
-                    shotHistory = it.shotHistory + result
+                    shotHistory = history,
+                    gpsAccuracyMeters = combinedAccuracy
                 )
             }
             // Persist to SharedPrefs as local backup
-            persistShots()
+            persistShots(updatedHistory)
             toast("Shot saved" + if (_uiState.value.isSignedIn) " to cloud" else " locally")
             // Save to Firestore in background (only when signed in to avoid duplicate local save)
             if (capturedUid != null) {
@@ -510,15 +537,71 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
             )
             if (newAchievements.isNotEmpty()) {
                 val now = System.currentTimeMillis()
+                var mergedMap: Map<String, Long> = emptyMap()
                 _uiState.update { state ->
                     val merged = state.unlockedAchievements.toMutableMap()
                     newAchievements.forEach { a -> merged[a.storageKey] = now }
+                    mergedMap = merged
                     state.copy(
                         unlockedAchievements = merged,
                         newlyUnlockedAchievements = newAchievements
                     )
                 }
-                achievementRepository.saveUnlocked(_uiState.value.unlockedAchievements)
+                achievementRepository.saveUnlocked(mergedMap)
+                newAchievements.forEach { achievement ->
+                    analyticsTracker.logAchievement(achievement.category.name, achievement.tier.name)
+                    if (capturedUid != null) {
+                        firestoreSync {
+                            achievementRepository.saveToFirestore(achievement.storageKey, now, capturedUid)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fun changeResultClub(club: Club) {
+        val capturedUid = repository.snapshotUid()
+        var updatedResult: ShotResult? = null
+        var updatedHistory: List<ShotResult> = emptyList()
+        _uiState.update { state ->
+            val result = state.shotResult ?: return@update state
+            val updated = result.copy(club = club)
+            val history = state.shotHistory.toMutableList()
+            val idx = history.indexOfFirst { it.timestampMs == result.timestampMs }
+            if (idx >= 0) history[idx] = updated
+            updatedResult = updated
+            updatedHistory = history
+            state.copy(shotResult = updated, shotHistory = history)
+        }
+        persistShots(updatedHistory)
+        if (capturedUid != null) {
+            updatedResult?.let { result ->
+                firestoreSync { repository.updateShot(result, forUid = capturedUid) }
+            }
+        }
+        // Re-check achievements with the updated club
+        updatedResult?.let { shot ->
+            val currentState = _uiState.value
+            val newAchievements = checkAchievements(
+                allShots = currentState.shotHistory,
+                newShot = shot,
+                alreadyUnlocked = currentState.unlockedAchievements.keys,
+                enabledClubs = currentState.settings.enabledClubs
+            )
+            if (newAchievements.isNotEmpty()) {
+                val now = System.currentTimeMillis()
+                var mergedMap: Map<String, Long> = emptyMap()
+                _uiState.update { state ->
+                    val merged = state.unlockedAchievements.toMutableMap()
+                    newAchievements.forEach { a -> merged[a.storageKey] = now }
+                    mergedMap = merged
+                    state.copy(
+                        unlockedAchievements = merged,
+                        newlyUnlockedAchievements = newAchievements
+                    )
+                }
+                achievementRepository.saveUnlocked(mergedMap)
                 newAchievements.forEach { achievement ->
                     analyticsTracker.logAchievement(achievement.category.name, achievement.tier.name)
                     if (capturedUid != null) {
@@ -540,13 +623,15 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
         stopTrackingService()
         cancelShotTimeout()
         clearGpsState()
+        startAccuracyMeters = null
         _uiState.update {
             it.copy(
                 phase = ShotPhase.CLUB_SELECT,
                 startCoordinate = null,
                 liveDistanceYards = 0,
                 liveDistanceMeters = 0,
-                shotResult = null
+                shotResult = null,
+                gpsAccuracyMeters = null
             )
         }
     }
@@ -586,28 +671,37 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
     fun toggleClub(club: Club) {
         _uiState.update {
             val current = it.settings.enabledClubs
+            // Prevent disabling the last club
+            if (club in current && current.size <= 1) return@update it
             val updated = if (club in current) current - club else current + club
             it.copy(settings = it.settings.copy(enabledClubs = updated))
         }
         persistSettings()
     }
 
-    // ── Wind overrides ────────────────────────────────────────────────────────
+    // ── Shot management ────────────────────────────────────────────────────────
 
-    fun deleteShot(index: Int) {
-        val shot = _uiState.value.shotHistory.getOrNull(index) ?: return
+    fun deleteShot(timestampMs: Long) {
         val capturedUid = repository.snapshotUid()
+        var updatedHistory: List<ShotResult> = emptyList()
         _uiState.update {
-            it.copy(shotHistory = it.shotHistory.filterIndexed { i, _ -> i != index })
+            val filtered = it.shotHistory.filter { s -> s.timestampMs != timestampMs }
+            updatedHistory = filtered
+            it.copy(shotHistory = filtered)
         }
-        persistShots()
+        persistShots(updatedHistory)
         toast("Shot deleted" + if (_uiState.value.isSignedIn) " from cloud" else " locally")
-        firestoreSync { repository.deleteShot(shot.timestampMs, forUid = capturedUid) }
+        if (capturedUid != null) {
+            firestoreSync { repository.deleteShot(timestampMs, forUid = capturedUid) }
+        }
     }
+
+    // ── Wind overrides ────────────────────────────────────────────────────────
 
     fun adjustWindDirection(deltaDegrees: Int) {
         val capturedUid = repository.snapshotUid()
         var updatedResult: ShotResult? = null
+        var updatedHistory: List<ShotResult> = emptyList()
         _uiState.update { state ->
             val result = state.shotResult ?: return@update state
             val newDeg = (result.windDirectionDegrees + deltaDegrees + 360) % 360
@@ -619,17 +713,21 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
             val idx = history.indexOfFirst { it.timestampMs == result.timestampMs }
             if (idx >= 0) history[idx] = updated
             updatedResult = updated
+            updatedHistory = history
             state.copy(shotResult = updated, shotHistory = history)
         }
-        persistShots()
-        updatedResult?.let { result ->
-            firestoreSync { repository.updateShot(result, forUid = capturedUid) }
+        persistShots(updatedHistory)
+        if (capturedUid != null) {
+            updatedResult?.let { result ->
+                firestoreSync { repository.updateShot(result, forUid = capturedUid) }
+            }
         }
     }
 
     fun adjustWindSpeed(deltaKmh: Double) {
         val capturedUid = repository.snapshotUid()
         var updatedResult: ShotResult? = null
+        var updatedHistory: List<ShotResult> = emptyList()
         _uiState.update { state ->
             val result = state.shotResult ?: return@update state
             val updated = result.copy(
@@ -639,11 +737,14 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
             val idx = history.indexOfFirst { it.timestampMs == result.timestampMs }
             if (idx >= 0) history[idx] = updated
             updatedResult = updated
+            updatedHistory = history
             state.copy(shotResult = updated, shotHistory = history)
         }
-        persistShots()
-        updatedResult?.let { result ->
-            firestoreSync { repository.updateShot(result, forUid = capturedUid) }
+        persistShots(updatedHistory)
+        if (capturedUid != null) {
+            updatedResult?.let { result ->
+                firestoreSync { repository.updateShot(result, forUid = capturedUid) }
+            }
         }
     }
 
@@ -693,15 +794,15 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
 
     // ── Persistence helpers ──────────────────────────────────────────────────
 
-    private fun persistShots() {
-        repository.saveShots(_uiState.value.shotHistory)
+    private fun persistShots(shots: List<ShotResult> = _uiState.value.shotHistory) {
+        repository.saveShots(shots)
     }
 
     private fun persistSettings() {
         val capturedUid = repository.snapshotUid()
         val settings = _uiState.value.settings
         repository.saveSettings(settings)
-        if (_uiState.value.isSignedIn) {
+        if (capturedUid != null) {
             firestoreSync { repository.saveSettingsToFirestore(settings, forUid = capturedUid) }
         }
     }

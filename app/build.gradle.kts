@@ -43,7 +43,9 @@ android {
             signingConfig = if (ksFile != null && file(ksFile).exists()) {
                 signingConfigs.getByName("release")
             } else {
-                signingConfigs.getByName("debug")
+                // Local dev: skip signing (produces unsigned APK for testing)
+                // CI: release.yml provides KEYSTORE_FILE; assembleRelease will fail if missing
+                null
             }
         }
     }

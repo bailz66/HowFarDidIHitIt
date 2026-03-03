@@ -12,6 +12,7 @@ package com.smacktrack.golf.ui.screen
  */
 
 import android.content.Intent
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -70,9 +71,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.smacktrack.golf.domain.Club
 import com.smacktrack.golf.location.WindCalculator
+import kotlin.math.roundToInt
 import com.smacktrack.golf.ui.AppSettings
 import com.smacktrack.golf.ui.DistanceUnit
 import com.smacktrack.golf.ui.ShotResult
+import com.smacktrack.golf.ui.distanceFor
 import com.smacktrack.golf.ui.formatTemperature
 import com.smacktrack.golf.ui.formatWindSpeed
 import com.smacktrack.golf.ui.primaryDistance
@@ -117,7 +120,7 @@ private data class ClubStats(
 fun AnalyticsScreen(
     shotHistory: List<ShotResult>,
     settings: AppSettings,
-    onDeleteShot: (Int) -> Unit = {},
+    onDeleteShot: (Long) -> Unit = {},
     onShotClicked: (ShotResult) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -141,7 +144,7 @@ fun AnalyticsScreen(
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                text = "Hit some shots to see\nyour club stats here",
+                text = "Tap SMACK on the Tracker tab\nto start tracking your distances",
                 style = MaterialTheme.typography.bodyLarge,
                 color = TextTertiary,
                 textAlign = TextAlign.Center
@@ -150,12 +153,14 @@ fun AnalyticsScreen(
         return
     }
 
-    // Time-period filtering using timestampMs
-    val filtered = if (selectedPeriod == TimePeriod.ALL) {
-        shotHistory
-    } else {
-        val cutoffMs = System.currentTimeMillis() - selectedPeriod.days.toLong() * 24 * 60 * 60 * 1000
-        shotHistory.filter { it.timestampMs >= cutoffMs }
+    // Time-period filtering using timestampMs (memoized to avoid recomputing on every recomposition)
+    val filtered = remember(shotHistory, selectedPeriod) {
+        if (selectedPeriod == TimePeriod.ALL) {
+            shotHistory
+        } else {
+            val cutoffMs = System.currentTimeMillis() - selectedPeriod.days.toLong() * 24 * 60 * 60 * 1000
+            shotHistory.filter { it.timestampMs >= cutoffMs }
+        }
     }
 
     Column(modifier = modifier.fillMaxSize()) {
@@ -200,6 +205,30 @@ fun AnalyticsScreen(
                     }
                 }
             }
+        }
+
+        if (filtered.isEmpty() && selectedClub == null) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(40.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = "No shots in this time period",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = TextTertiary,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = "Try selecting a longer time period",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextTertiary
+                )
+            }
+            return
         }
 
         AnimatedContent(
@@ -251,23 +280,6 @@ fun AnalyticsScreen(
             }
         }
     }
-}
-
-// ── Distance helper ─────────────────────────────────────────────────────────
-
-private fun distanceFor(shot: ShotResult, useYards: Boolean, weatherAdjusted: Boolean, settings: AppSettings): Int {
-    val raw = if (useYards) shot.distanceYards else shot.distanceMeters
-    if (!weatherAdjusted) return raw
-    val effect = WindCalculator.analyze(
-        windSpeedKmh = shot.windSpeedKmh,
-        windFromDegrees = shot.windDirectionDegrees,
-        shotBearingDegrees = shot.shotBearingDegrees,
-        distanceYards = shot.distanceYards,
-        trajectoryMultiplier = settings.trajectory.multiplier,
-        temperatureF = shot.temperatureF
-    )
-    val adjustedYards = (shot.distanceYards - effect.totalWeatherEffectYards).coerceAtLeast(0)
-    return if (useYards) adjustedYards else (adjustedYards * 0.9144).toInt()
 }
 
 // ── Category Section Header ─────────────────────────────────────────────────
@@ -331,36 +343,38 @@ private fun StatsListView(
     val unitLabel = if (useYards) "yds" else "m"
     val context = LocalContext.current
 
-    val stats = shots
-        .groupBy { it.club }
-        .map { (club, clubShots) ->
-            val sortedShots = clubShots.sortedBy { it.timestampMs }
-            val distances = sortedShots.map { distanceFor(it, useYards, weatherAdjusted, settings) }
-            ClubStats(
-                club = club,
-                shotCount = clubShots.size,
-                avg = distances.average().toInt(),
-                long = distances.max(),
-                short = distances.min(),
-                recentDistances = distances.takeLast(5),
-                trendDirection = computeTrend(distances),
-                spread = stdDev(distances)
-            )
-        }
-        .sortedBy { it.club.sortOrder }
+    val stats = remember(shots, useYards, weatherAdjusted, settings) {
+        shots
+            .groupBy { it.club }
+            .map { (club, clubShots) ->
+                val sortedShots = clubShots.sortedBy { it.timestampMs }
+                val distances = sortedShots.map { distanceFor(it, useYards, weatherAdjusted, settings) }
+                ClubStats(
+                    club = club,
+                    shotCount = clubShots.size,
+                    avg = distances.average().roundToInt(),
+                    long = distances.max(),
+                    short = distances.min(),
+                    recentDistances = distances.takeLast(5),
+                    trendDirection = computeTrend(distances),
+                    spread = stdDev(distances)
+                )
+            }
+            .sortedBy { it.club.sortOrder }
+    }
 
     // Bag summary data
-    val bagClubs = stats.map { BagClubSummary(it.club, it.avg, clubChipColor(it.club.sortOrder)) }
+    val bagClubs = remember(stats) { stats.map { BagClubSummary(it.club, it.avg, clubChipColor(it.club.sortOrder)) } }
 
     // Highlight data
-    val longest = stats.maxByOrNull { it.long }
-    val mostConsistent = stats.filter { it.shotCount >= 3 }.minByOrNull { it.spread }
-    val mostImproved = stats.filter { it.trendDirection == TrendDirection.UP }
-        .maxByOrNull { it.shotCount }
-    val showHighlights = stats.count { it.shotCount >= 3 } >= 3
+    val longest = remember(stats) { stats.maxByOrNull { it.long } }
+    val mostConsistent = remember(stats) { stats.filter { it.shotCount >= 3 }.minByOrNull { it.spread } }
+    val mostImproved = remember(stats) { stats.filter { it.trendDirection == TrendDirection.UP }
+        .maxByOrNull { it.shotCount } }
+    val showHighlights = remember(stats) { stats.count { it.shotCount >= 3 } >= 3 }
 
     // Group stats by category
-    val statsByCategory = stats.groupBy { it.club.category }
+    val statsByCategory = remember(stats) { stats.groupBy { it.club.category } }
 
     LazyColumn(
         modifier = Modifier
@@ -612,37 +626,41 @@ private fun ClubDetailView(
     settings: AppSettings,
     weatherAdjusted: Boolean,
     onWeatherAdjustedChanged: (Boolean) -> Unit,
-    onDeleteShot: (Int) -> Unit = {},
+    onDeleteShot: (Long) -> Unit = {},
     onShotClicked: (ShotResult) -> Unit = {},
     onBack: () -> Unit
 ) {
-    var pendingDeleteIndex by remember { mutableStateOf<Int?>(null) }
+    var pendingDeleteTimestamp by remember { mutableStateOf<Long?>(null) }
 
-    pendingDeleteIndex?.let { index ->
+    pendingDeleteTimestamp?.let { ts ->
         AlertDialog(
-            onDismissRequest = { pendingDeleteIndex = null },
+            onDismissRequest = { pendingDeleteTimestamp = null },
             title = { Text("Delete shot?") },
             text = { Text("This shot will be permanently removed.") },
             confirmButton = {
                 TextButton(onClick = {
-                    onDeleteShot(index)
-                    pendingDeleteIndex = null
+                    onDeleteShot(ts)
+                    pendingDeleteTimestamp = null
                 }) { Text("Delete", color = Color(0xFFE53935)) }
             },
             dismissButton = {
-                TextButton(onClick = { pendingDeleteIndex = null }) { Text("Cancel") }
+                TextButton(onClick = { pendingDeleteTimestamp = null }) { Text("Cancel") }
             }
         )
     }
+    BackHandler { onBack() }
+
     val useYards = settings.distanceUnit == DistanceUnit.YARDS
     val unitLabel = if (useYards) "yds" else "m"
 
-    val sortedShots = shots.sortedBy { it.timestampMs }
-    val distances = sortedShots.map { distanceFor(it, useYards, weatherAdjusted, settings) }
-    val avg = if (distances.isNotEmpty()) distances.average().toInt() else 0
-    val long = distances.maxOrNull() ?: 0
-    val short = distances.minOrNull() ?: 0
-    val trend = computeTrend(distances)
+    val sortedShots = remember(shots) { shots.sortedBy { it.timestampMs } }
+    val distances = remember(sortedShots, useYards, weatherAdjusted, settings) {
+        sortedShots.map { distanceFor(it, useYards, weatherAdjusted, settings) }
+    }
+    val avg = remember(distances) { if (distances.isNotEmpty()) distances.average().roundToInt() else 0 }
+    val long = remember(distances) { distances.maxOrNull() ?: 0 }
+    val short = remember(distances) { distances.minOrNull() ?: 0 }
+    val trend = remember(distances) { computeTrend(distances) }
     val trendLabel = when (trend) {
         TrendDirection.UP -> "Improving"
         TrendDirection.DOWN -> "Declining"
@@ -655,7 +673,7 @@ private fun ClubDetailView(
     }
 
     val chipColor = clubChipColor(club.sortOrder)
-    val sessions = groupIntoSessions(shots).reversed()
+    val sessions = remember(shots) { groupIntoSessions(shots).reversed() }
 
     val pageSize = 5
     var visibleSessionCount by remember { mutableIntStateOf(pageSize) }
@@ -893,14 +911,13 @@ private fun ClubDetailView(
                 SessionHeader(session)
             }
             val sessionShotsReversed = session.shots.reversed()
-            items(sessionShotsReversed) { shot ->
-                val actualIndex = allShots.indexOfFirst { it.timestampMs == shot.timestampMs }
+            items(sessionShotsReversed, key = { it.timestampMs }) { shot ->
                 ShotDetailRow(
                     shot = shot,
                     settings = settings,
                     weatherAdjusted = weatherAdjusted,
                     clubLong = long,
-                    onDelete = if (actualIndex >= 0) {{ pendingDeleteIndex = actualIndex }} else null,
+                    onDelete = { pendingDeleteTimestamp = shot.timestampMs },
                     onClick = { onShotClicked(shot) }
                 )
             }
@@ -953,16 +970,18 @@ private fun ShotDetailRow(
     val rawDist = shot.primaryDistance(settings.distanceUnit)
     val unitLabel = shot.shortUnitLabel(settings.distanceUnit)
 
-    val weatherEffect = WindCalculator.analyze(
-        windSpeedKmh = shot.windSpeedKmh,
-        windFromDegrees = shot.windDirectionDegrees,
-        shotBearingDegrees = shot.shotBearingDegrees,
-        distanceYards = shot.distanceYards,
-        trajectoryMultiplier = settings.trajectory.multiplier,
-        temperatureF = shot.temperatureF
-    )
+    val weatherEffect = remember(shot, settings.trajectory) {
+        WindCalculator.analyze(
+            windSpeedKmh = shot.windSpeedKmh,
+            windFromDegrees = shot.windDirectionDegrees,
+            shotBearingDegrees = shot.shotBearingDegrees,
+            distanceYards = shot.distanceYards,
+            trajectoryMultiplier = settings.trajectory.multiplier,
+            temperatureF = shot.temperatureF
+        )
+    }
     val adjustedYards = (shot.distanceYards - weatherEffect.totalWeatherEffectYards).coerceAtLeast(0)
-    val adjustedDist = if (settings.distanceUnit == DistanceUnit.YARDS) adjustedYards else (adjustedYards * 0.9144).toInt()
+    val adjustedDist = if (settings.distanceUnit == DistanceUnit.YARDS) adjustedYards else (adjustedYards * 0.9144).roundToInt()
     val displayDist = if (weatherAdjusted) adjustedDist else rawDist
 
     val windColor = windCategoryColor(weatherEffect.colorCategory)
@@ -999,7 +1018,9 @@ private fun ShotDetailRow(
                     )
                 }
                 if (weatherEffect.carryEffectYards != 0) {
-                    val diff = weatherEffect.carryEffectYards
+                    val diffYds = weatherEffect.carryEffectYards
+                    val diff = if (settings.distanceUnit == DistanceUnit.YARDS) diffYds
+                        else (diffYds * 0.9144).roundToInt()
                     val diffText = if (diff >= 0) "+$diff $unitLabel" else "$diff $unitLabel"
                     Text(
                         text = "Wind effect: $diffText",

@@ -82,8 +82,8 @@ class ShotSerializationTest {
 
         assertEquals(0, result.windDirectionDegrees)
         assertEquals(0.0, result.shotBearingDegrees, 0.001)
-        // timestampMs defaults to System.currentTimeMillis() — just verify it's > 0
-        assertTrue(result.timestampMs > 0)
+        // timestampMs defaults to 0L when missing (stable fallback)
+        assertEquals(0L, result.timestampMs)
     }
 
     @Test

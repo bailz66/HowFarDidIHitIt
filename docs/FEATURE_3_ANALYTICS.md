@@ -70,37 +70,29 @@ A chronological list of every recorded shot.
 | "What were my distances last summer?" | Date: Jun 1 – Aug 31 |
 | "Show me all my wedge shots" | Club: PW, GW, SW, LW |
 
-### Room Queries for Filters
-```kotlin
-@Query("""
-    SELECT * FROM shots
-    WHERE (:clubs IS NULL OR club IN (:clubs))
-    AND (:startTime IS NULL OR timestamp >= :startTime)
-    AND (:endTime IS NULL OR timestamp <= :endTime)
-    AND (:weatherConditions IS NULL OR weatherCondition IN (:weatherConditions))
-    AND (:minTemp IS NULL OR temperatureF >= :minTemp)
-    AND (:maxTemp IS NULL OR temperatureF <= :maxTemp)
-    ORDER BY timestamp DESC
-""")
-fun getFilteredShots(
-    clubs: List<String>?,
-    startTime: Long?,
-    endTime: Long?,
-    weatherConditions: List<String>?,
-    minTemp: Double?,
-    maxTemp: Double?
-): Flow<List<Shot>>
-```
+### Filtering Implementation
+Filtering is done in-memory on the `shotHistory` list from the ViewModel. Time period filtering (7d, 30d, 90d, All) is the primary filter, applied via `timestampMs` comparison.
+
+## Additional Analytics Features
+
+### Wind-Adjusted Toggle
+Switch between raw distances and wind-adjusted carry distances. When enabled, each shot's distance is adjusted by the calculated wind effect (headwind/tailwind based on `WindCalculator`).
+
+### Sparklines & Scatter Strips
+Each club card includes a miniature sparkline showing the last N shot distances, providing a visual trend indicator.
+
+### Session Summary Cards
+Shots are grouped into playing sessions (time-proximity-based). Each session shows total shots, distance range, and duration.
 
 ## Navigation
-- **Bottom navigation** with 3 tabs: Shot Tracker | Analytics | History
-- Analytics and History tabs share the filter state
+- **Bottom navigation** with 3 tabs: Tracker | Stats | History (+ Settings accessible from History)
+- Time period filter state shared across views
 - Navigating between tabs preserves filter selections
 
 ## Data Source
-- All data from local Room database
-- Room `Flow<T>` queries — UI updates reactively when new shots are added
-- No network calls — entirely offline
+- Shot data from `ShotTrackerViewModel.uiState.shotHistory` (loaded from SharedPreferences + Firestore)
+- UI updates reactively via `StateFlow` when new shots are added
+- Aggregation computed in composables — no separate analytics store
 
 ## Edge Cases
 

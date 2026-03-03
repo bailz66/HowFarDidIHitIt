@@ -64,25 +64,25 @@ import com.smacktrack.golf.ui.theme.TextTertiary
 fun HistoryScreen(
     shotHistory: List<ShotResult>,
     settings: AppSettings,
-    onDeleteShot: (Int) -> Unit = {},
+    onDeleteShot: (Long) -> Unit = {},
     onShotClicked: (ShotResult) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    var pendingDeleteIndex by remember { mutableStateOf<Int?>(null) }
+    var pendingDeleteTimestamp by remember { mutableStateOf<Long?>(null) }
 
-    pendingDeleteIndex?.let { index ->
+    pendingDeleteTimestamp?.let { ts ->
         AlertDialog(
-            onDismissRequest = { pendingDeleteIndex = null },
+            onDismissRequest = { pendingDeleteTimestamp = null },
             title = { Text("Delete shot?") },
             text = { Text("This shot will be permanently removed.") },
             confirmButton = {
                 TextButton(onClick = {
-                    onDeleteShot(index)
-                    pendingDeleteIndex = null
+                    onDeleteShot(ts)
+                    pendingDeleteTimestamp = null
                 }) { Text("Delete", color = Color(0xFFE53935)) }
             },
             dismissButton = {
-                TextButton(onClick = { pendingDeleteIndex = null }) { Text("Cancel") }
+                TextButton(onClick = { pendingDeleteTimestamp = null }) { Text("Cancel") }
             }
         )
     }
@@ -95,13 +95,13 @@ fun HistoryScreen(
             verticalArrangement = Arrangement.Center
         ) {
             Text(
-                text = "No history yet",
+                text = "No shots yet",
                 style = MaterialTheme.typography.headlineMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                text = "Your recorded shots\nwill appear here",
+                text = "Tap SMACK on the Tracker tab\nto record your first shot",
                 style = MaterialTheme.typography.bodyLarge,
                 color = TextTertiary,
                 textAlign = TextAlign.Center
@@ -115,18 +115,16 @@ fun HistoryScreen(
     val sessionCount = sessions.size
     val sessionLabel = if (sessionCount == 1) "session" else "sessions"
 
-    // Pre-build timestamp→index lookup map — O(n) instead of O(n²) indexOfFirst per card
-    val timestampToIndex = remember(shotHistory) {
-        val map = HashMap<Long, Int>(shotHistory.size * 2)
-        shotHistory.forEachIndexed { index, shot -> map[shot.timestampMs] = index }
-        map
-    }
-
     val pageSize = 5
     var visibleSessionCount by remember { mutableIntStateOf(pageSize) }
 
+    // Only reset pagination when new shots are added, not on deletion
+    var previousSize by remember { mutableIntStateOf(shotHistory.size) }
     LaunchedEffect(shotHistory.size) {
-        visibleSessionCount = pageSize
+        if (shotHistory.size > previousSize) {
+            visibleSessionCount = pageSize
+        }
+        previousSize = shotHistory.size
     }
 
     val visibleSessions = sessions.take(visibleSessionCount)
@@ -168,12 +166,11 @@ fun HistoryScreen(
             }
 
             val shotsReversed = session.shots.reversed()
-            items(shotsReversed) { shot ->
-                val actualIndex = timestampToIndex[shot.timestampMs] ?: -1
+            items(shotsReversed, key = { it.timestampMs }) { shot ->
                 ShotHistoryCard(
                     shot = shot,
                     settings = settings,
-                    onDelete = if (actualIndex >= 0) {{ pendingDeleteIndex = actualIndex }} else null,
+                    onDelete = { pendingDeleteTimestamp = shot.timestampMs },
                     onClick = { onShotClicked(shot) }
                 )
             }

@@ -64,7 +64,8 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.activity.compose.BackHandler
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -89,6 +90,7 @@ import com.smacktrack.golf.data.AuthManager
 import com.smacktrack.golf.domain.AchievementCategory
 import com.smacktrack.golf.ui.AppSettings
 import com.smacktrack.golf.ui.ShotResult
+import com.smacktrack.golf.ui.ShotPhase
 import com.smacktrack.golf.ui.ShotTrackerViewModel
 import com.smacktrack.golf.ui.SyncStatus
 import com.smacktrack.golf.ui.percentileAmongClub
@@ -162,14 +164,21 @@ private val navItems = listOf(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SmackTrackApp(viewModel: ShotTrackerViewModel) {
-    val uiState by viewModel.uiState.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var selectedTab by remember { mutableIntStateOf(0) }
     var showSettings by remember { mutableStateOf(false) }
-    var permissionRequested by remember { mutableStateOf(false) }
     var splashFinished by remember { mutableStateOf(false) }
     var detailShot by remember { mutableStateOf<ShotResult?>(null) }
     var showAchievements by remember { mutableStateOf(false) }
+
+    // Back button closes settings/achievements overlays instead of exiting app
+    BackHandler(enabled = showSettings || showAchievements) {
+        when {
+            showAchievements -> showAchievements = false
+            showSettings -> showSettings = false
+        }
+    }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -177,7 +186,6 @@ fun SmackTrackApp(viewModel: ShotTrackerViewModel) {
         val granted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
             permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
         viewModel.onPermissionResult(granted)
-        permissionRequested = true
     }
 
     // Check permission on first composition; request once if not granted
@@ -302,10 +310,12 @@ fun SmackTrackApp(viewModel: ShotTrackerViewModel) {
                     containerColor = MaterialTheme.colorScheme.surface,
                     tonalElevation = 0.dp
                 ) {
+                    val shotActive = uiState.phase != ShotPhase.CLUB_SELECT && uiState.phase != ShotPhase.RESULT
                     navItems.forEachIndexed { index, item ->
                         NavigationBarItem(
                             selected = selectedTab == index,
                             onClick = { selectedTab = index },
+                            enabled = index == 0 || !shotActive,
                             icon = { Icon(item.icon, contentDescription = item.label) },
                             label = {
                                 Text(
@@ -385,6 +395,7 @@ fun SmackTrackApp(viewModel: ShotTrackerViewModel) {
                         onReset = viewModel::reset,
                         onWindDirectionChange = { viewModel.adjustWindDirection(45) },
                         onWindSpeedChange = viewModel::adjustWindSpeed,
+                        onClubChanged = viewModel::changeResultClub,
                         onDeleteShot = viewModel::deleteShot,
                         onShotClicked = { detailShot = it },
                         animateEntrance = splashFinished,

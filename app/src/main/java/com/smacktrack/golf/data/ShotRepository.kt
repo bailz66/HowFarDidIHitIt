@@ -121,24 +121,14 @@ class ShotRepository(context: Context) {
                 .update("totalShots", FieldValue.increment(1))
                 .await()
         } catch (e: Exception) {
-            // Document doesn't exist yet — create with merge to avoid race conditions
+            // Document doesn't exist yet — create with increment to avoid race conditions
             try {
                 firestore.document("stats/global")
-                    .set(mapOf("totalShots" to 1L), SetOptions.merge())
+                    .set(mapOf("totalShots" to FieldValue.increment(1)), SetOptions.merge())
                     .await()
             } catch (e2: Exception) {
                 Log.w("ShotRepository", "Failed to increment global shot count", e2)
             }
-        }
-    }
-
-    suspend fun getGlobalShotCount(): Long {
-        return try {
-            val doc = firestore.document("stats/global").get().await()
-            doc.getLong("totalShots") ?: 0L
-        } catch (e: Exception) {
-            Log.w("ShotRepository", "Failed to read global shot count", e)
-            0L
         }
     }
 
@@ -215,7 +205,14 @@ class ShotRepository(context: Context) {
         val json = prefs.getString("shot_history", null) ?: return emptyList()
         return try {
             val array = JSONArray(json)
-            (0 until array.length()).map { i -> array.getJSONObject(i).toShotResult() }
+            (0 until array.length()).mapNotNull { i ->
+                try {
+                    array.getJSONObject(i).toShotResult()
+                } catch (e: Exception) {
+                    Log.e("ShotRepository", "Skipping corrupted shot at index $i", e)
+                    null
+                }
+            }
         } catch (e: Exception) {
             Log.e("ShotRepository", "Failed to load shots", e)
             emptyList()
@@ -267,9 +264,10 @@ class ShotRepository(context: Context) {
         val json = prefs.getString("enabled_clubs", null) ?: return Club.entries.toSet()
         return try {
             val array = JSONArray(json)
-            (0 until array.length()).mapNotNull { i ->
+            val result = (0 until array.length()).mapNotNull { i ->
                 enumValueOfOrNull<Club>(array.getString(i))
             }.toSet()
+            result.ifEmpty { Club.entries.toSet() }
         } catch (e: Exception) {
             Log.e("ShotRepository", "Failed to load enabled clubs", e)
             Club.entries.toSet()
@@ -294,20 +292,26 @@ class ShotRepository(context: Context) {
         )
     }
 
-    @Suppress("UNCHECKED_CAST")
     private fun com.google.firebase.firestore.DocumentSnapshot.toAppSettings(): AppSettings {
-        return AppSettings(
-            distanceUnit = getString("distanceUnit")
-                ?.let { enumValueOfOrNull<DistanceUnit>(it) } ?: DistanceUnit.YARDS,
-            windUnit = getString("windUnit")
-                ?.let { enumValueOfOrNull<WindUnit>(it) } ?: WindUnit.MPH,
-            temperatureUnit = getString("temperatureUnit")
-                ?.let { enumValueOfOrNull<TemperatureUnit>(it) } ?: TemperatureUnit.FAHRENHEIT,
-            trajectory = getString("trajectory")
-                ?.let { enumValueOfOrNull<Trajectory>(it) } ?: Trajectory.MID,
-            enabledClubs = (get("enabledClubs") as? List<String>)
-                ?.mapNotNull { enumValueOfOrNull<Club>(it) }?.toSet()
-                ?: Club.entries.toSet()
-        )
+        return try {
+            AppSettings(
+                distanceUnit = getString("distanceUnit")
+                    ?.let { enumValueOfOrNull<DistanceUnit>(it) } ?: DistanceUnit.YARDS,
+                windUnit = getString("windUnit")
+                    ?.let { enumValueOfOrNull<WindUnit>(it) } ?: WindUnit.MPH,
+                temperatureUnit = getString("temperatureUnit")
+                    ?.let { enumValueOfOrNull<TemperatureUnit>(it) } ?: TemperatureUnit.FAHRENHEIT,
+                trajectory = getString("trajectory")
+                    ?.let { enumValueOfOrNull<Trajectory>(it) } ?: Trajectory.MID,
+                enabledClubs = (get("enabledClubs") as? List<*>)
+                    ?.filterIsInstance<String>()
+                    ?.mapNotNull { enumValueOfOrNull<Club>(it) }?.toSet()
+                    ?.ifEmpty { null }
+                    ?: Club.entries.toSet()
+            )
+        } catch (e: Exception) {
+            Log.e("ShotRepository", "Failed to parse Firestore settings", e)
+            AppSettings()
+        }
     }
 }

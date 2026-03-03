@@ -363,11 +363,17 @@ fun SettingsScreen(
 
         if (signInError != null) {
             Spacer(Modifier.height(12.dp))
-            Text(
-                text = signInError,
-                style = MaterialTheme.typography.bodySmall,
-                color = Color(0xFFB3261E)
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = signInError,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFFB3261E),
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(onClick = onClearError) {
+                    Text("Dismiss", style = MaterialTheme.typography.labelSmall)
+                }
+            }
         }
 
         Spacer(Modifier.height(28.dp))

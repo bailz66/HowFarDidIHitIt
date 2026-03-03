@@ -341,4 +341,81 @@ class AchievementCheckerTest {
         assertTrue(UnlockedAchievement.fromStorageKey("INVALID") == null)
         assertTrue(UnlockedAchievement.fromStorageKey("BOMBER_INVALID") == null)
     }
+
+    // ── BOMBER tier boundary ──────────────────────────────────────────────
+
+    @Test
+    @DisplayName("BOMBER Bronze does NOT unlock at exactly 200 yards (threshold is >=)")
+    fun bomberBronzeBoundaryExact() {
+        val newShot = shot(club = Club.DRIVER, yards = 200)
+        val result = checkAchievements(listOf(newShot), newShot, emptySet(), allClubs)
+        assertTrue("BOMBER_BRONZE" in storageKeys(result))
+    }
+
+    @Test
+    @DisplayName("BOMBER Bronze does not unlock at 199 yards")
+    fun bomberBronzeBelowThreshold() {
+        val newShot = shot(club = Club.DRIVER, yards = 199)
+        val result = checkAchievements(listOf(newShot), newShot, emptySet(), allClubs)
+        assertTrue("BOMBER_BRONZE" !in storageKeys(result))
+    }
+
+    @Test
+    @DisplayName("BOMBER Silver at exactly 250 yards, not at 249")
+    fun bomberSilverBoundary() {
+        val at249 = shot(club = Club.DRIVER, yards = 249)
+        val r249 = checkAchievements(listOf(at249), at249, emptySet(), allClubs)
+        assertTrue("BOMBER_SILVER" !in storageKeys(r249))
+
+        val at250 = shot(club = Club.DRIVER, yards = 250)
+        val r250 = checkAchievements(listOf(at250), at250, emptySet(), allClubs)
+        assertTrue("BOMBER_SILVER" in storageKeys(r250))
+    }
+
+    // ── SNIPER spread boundary ────────────────────────────────────────────
+
+    @Test
+    @DisplayName("SNIPER Bronze fails when spread is exactly 16 yards")
+    fun sniperBronzeSpreadTooWide() {
+        val shots = listOf(
+            shot(club = Club.SEVEN_IRON, yards = 142, timestampMs = 1000),
+            shot(club = Club.SEVEN_IRON, yards = 150, timestampMs = 2000),
+            shot(club = Club.SEVEN_IRON, yards = 158, timestampMs = 3000) // spread = 16
+        )
+        val result = checkAchievements(shots, shots.last(), emptySet(), allClubs)
+        assertTrue("SNIPER_BRONZE" !in storageKeys(result))
+    }
+
+    @Test
+    @DisplayName("SNIPER Bronze unlocks when spread is exactly 15 yards")
+    fun sniperBronzeSpreadExact() {
+        val shots = listOf(
+            shot(club = Club.SEVEN_IRON, yards = 143, timestampMs = 1000),
+            shot(club = Club.SEVEN_IRON, yards = 150, timestampMs = 2000),
+            shot(club = Club.SEVEN_IRON, yards = 158, timestampMs = 3000) // spread = 15
+        )
+        val result = checkAchievements(shots, shots.last(), emptySet(), allClubs)
+        assertTrue("SNIPER_BRONZE" in storageKeys(result))
+    }
+
+    // ── DEDICATED session boundary ────────────────────────────────────────
+
+    @Test
+    @DisplayName("DEDICATED counts sessions using >30min gap, exactly 30min stays in same session")
+    fun dedicatedSessionGapBoundary() {
+        val exactGap = 30 * 60 * 1000L // exactly 30 minutes
+        // 5 shots spaced 30min apart = 1 session (gaps are all exactly 30min, not >30min)
+        val shots = (0..4).map { shot(timestampMs = 1000 + exactGap * it) }
+        val result = checkAchievements(shots, shots.last(), emptySet(), allClubs)
+        assertTrue("DEDICATED_BRONZE" !in storageKeys(result)) // only 1 session, need 5
+    }
+
+    @Test
+    @DisplayName("DEDICATED counts sessions: 30min+1ms gap creates new session")
+    fun dedicatedSessionGapPlusOne() {
+        val gap = 30 * 60 * 1000L + 1 // 30 minutes + 1ms
+        val shots = (0..4).map { shot(timestampMs = 1000 + gap * it) }
+        val result = checkAchievements(shots, shots.last(), emptySet(), allClubs)
+        assertTrue("DEDICATED_BRONZE" in storageKeys(result)) // 5 sessions
+    }
 }

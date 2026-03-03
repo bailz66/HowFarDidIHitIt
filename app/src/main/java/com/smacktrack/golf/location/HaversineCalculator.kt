@@ -54,6 +54,3 @@ fun bearingDegrees(start: GpsCoordinate, end: GpsCoordinate): Double {
 
 /** Converts meters to yards. */
 fun metersToYards(meters: Double): Double = meters / METERS_PER_YARD
-
-/** Converts yards to meters. */
-fun yardsToMeters(yards: Double): Double = yards * METERS_PER_YARD

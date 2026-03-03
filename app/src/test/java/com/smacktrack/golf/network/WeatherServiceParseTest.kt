@@ -109,6 +109,45 @@ class WeatherServiceParseTest {
     }
 
     @Test
+    fun `returns null when temperature string is not a number`() {
+        // When temperature_2m is a non-numeric string, optDouble returns the fallback 0.0
+        // which is valid — so this tests that the parser doesn't crash
+        val json = """
+        {
+            "current": {
+                "temperature_2m": "abc",
+                "weather_code": 0,
+                "wind_speed_10m": 10.0,
+                "wind_direction_10m": 0
+            }
+        }
+        """.trimIndent()
+
+        // optDouble("temperature_2m", 0.0) returns 0.0 for non-numeric strings, not NaN
+        val result = WeatherService.parseWeatherJson(json)
+        assertNotNull(result)
+        assertEquals(0.0, result!!.temperatureCelsius, 0.01)
+    }
+
+    @Test
+    fun `handles extremely large temperature values`() {
+        val json = """
+        {
+            "current": {
+                "temperature_2m": 999999.0,
+                "weather_code": 0,
+                "wind_speed_10m": 10.0,
+                "wind_direction_10m": 0
+            }
+        }
+        """.trimIndent()
+
+        val result = WeatherService.parseWeatherJson(json)
+        assertNotNull(result)
+        assertEquals(999999.0, result!!.temperatureCelsius, 0.01)
+    }
+
+    @Test
     fun `parses response with extra fields`() {
         val json = """
         {

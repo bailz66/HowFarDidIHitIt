@@ -1,7 +1,6 @@
 package com.smacktrack.golf.data
 
 import android.app.Activity
-import android.content.Context
 import android.util.Log
 import androidx.credentials.ClearCredentialStateRequest
 import androidx.credentials.CredentialManager
@@ -16,6 +15,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.tasks.await
+import java.security.MessageDigest
+import java.util.UUID
 
 class AuthManager(private val activity: Activity) {
 
@@ -27,8 +28,6 @@ class AuthManager(private val activity: Activity) {
 
     private val _signInError = MutableStateFlow<String?>(null)
     val signInError: StateFlow<String?> = _signInError.asStateFlow()
-
-    val isSignedIn: Boolean get() = firebaseAuth.currentUser != null
 
     private val authStateListener = FirebaseAuth.AuthStateListener { auth ->
         _currentUser.value = auth.currentUser
@@ -49,10 +48,16 @@ class AuthManager(private val activity: Activity) {
     suspend fun signInWithGoogle(webClientId: String): Result<FirebaseUser> {
         _signInError.value = null
         return try {
+            val nonce = UUID.randomUUID().toString()
+            val hashedNonce = MessageDigest.getInstance("SHA-256")
+                .digest(nonce.toByteArray())
+                .joinToString("") { "%02x".format(it) }
+
             val googleIdOption = GetGoogleIdOption.Builder()
                 .setFilterByAuthorizedAccounts(false)
                 .setServerClientId(webClientId)
                 .setAutoSelectEnabled(false)
+                .setNonce(hashedNonce)
                 .build()
 
             val request = GetCredentialRequest.Builder()
@@ -83,7 +88,7 @@ class AuthManager(private val activity: Activity) {
             Result.failure(e)
         } catch (e: Exception) {
             Log.e("AuthManager", "Google sign-in failed", e)
-            _signInError.value = "Sign-in failed: ${e.message}"
+            _signInError.value = "Sign-in failed. Please try again."
             Result.failure(e)
         }
     }
@@ -95,5 +100,6 @@ class AuthManager(private val activity: Activity) {
             Log.e("AuthManager", "Failed to clear credential state", e)
         }
         firebaseAuth.signOut()
+        _currentUser.value = null // Synchronous clear — don't wait for auth listener
     }
 }

@@ -39,10 +39,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.smacktrack.golf.domain.Club
-import com.smacktrack.golf.location.WindCalculator
 import com.smacktrack.golf.ui.AppSettings
+import kotlin.math.roundToInt
 import com.smacktrack.golf.ui.DistanceUnit
 import com.smacktrack.golf.ui.ShotResult
+import com.smacktrack.golf.ui.distanceFor
 import com.smacktrack.golf.ui.theme.ChipUnselectedBg
 import com.smacktrack.golf.ui.theme.DarkGreen
 import com.smacktrack.golf.ui.theme.TextPrimary
@@ -62,23 +63,6 @@ private data class ClubDistanceBar(
     val chipColor: Color
 )
 
-// ── Distance helper (mirrors AnalyticsScreen) ───────────────────────────────
-
-private fun distanceFor(shot: ShotResult, useYards: Boolean, weatherAdjusted: Boolean, settings: AppSettings): Int {
-    val raw = if (useYards) shot.distanceYards else shot.distanceMeters
-    if (!weatherAdjusted) return raw
-    val effect = WindCalculator.analyze(
-        windSpeedKmh = shot.windSpeedKmh,
-        windFromDegrees = shot.windDirectionDegrees,
-        shotBearingDegrees = shot.shotBearingDegrees,
-        distanceYards = shot.distanceYards,
-        trajectoryMultiplier = settings.trajectory.multiplier,
-        temperatureF = shot.temperatureF
-    )
-    val adjustedYards = (shot.distanceYards - effect.totalWeatherEffectYards).coerceAtLeast(0)
-    return if (useYards) adjustedYards else (adjustedYards * 0.9144).toInt()
-}
-
 // ── Main composable ─────────────────────────────────────────────────────────
 
 @Composable
@@ -93,23 +77,25 @@ fun DistanceChartView(
     val useYards = settings.distanceUnit == DistanceUnit.YARDS
     val unitLabel = if (useYards) "yds" else "m"
 
-    // Build per-club bars
-    val bars = shots
-        .groupBy { it.club }
-        .map { (club, clubShots) ->
-            val rawDistances = clubShots.map { distanceFor(it, useYards, weatherAdjusted = false, settings) }
-            val adjDistances = clubShots.map { distanceFor(it, useYards, weatherAdjusted = true, settings) }
-            ClubDistanceBar(
-                club = club,
-                min = rawDistances.min(),
-                max = rawDistances.max(),
-                avg = rawDistances.average().toInt(),
-                weatherAdjAvg = if (weatherAdjusted) adjDistances.average().toInt() else null,
-                shotCount = clubShots.size,
-                chipColor = clubChipColor(club.sortOrder)
-            )
-        }
-        .sortedBy { it.club.sortOrder }
+    // Build per-club bars (memoized to avoid recomputing on scroll)
+    val bars = remember(shots, useYards, weatherAdjusted, settings) {
+        shots
+            .groupBy { it.club }
+            .map { (club, clubShots) ->
+                val rawDistances = clubShots.map { distanceFor(it, useYards, weatherAdjusted = false, settings) }
+                val adjDistances = clubShots.map { distanceFor(it, useYards, weatherAdjusted = true, settings) }
+                ClubDistanceBar(
+                    club = club,
+                    min = rawDistances.min(),
+                    max = rawDistances.max(),
+                    avg = rawDistances.average().roundToInt(),
+                    weatherAdjAvg = if (weatherAdjusted) adjDistances.average().roundToInt() else null,
+                    shotCount = clubShots.size,
+                    chipColor = clubChipColor(club.sortOrder)
+                )
+            }
+            .sortedBy { it.club.sortOrder }
+    }
 
     // Global scale: 0 to the max distance across all clubs (rounded up to nearest 50)
     val globalMax = if (bars.isNotEmpty()) {
@@ -290,9 +276,9 @@ private fun ClubRangeRow(
     unitLabel: String,
     weatherAdjusted: Boolean
 ) {
-    // Bar grow animation
-    var animateTarget by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { animateTarget = true }
+    // Bar grow animation (keyed on data so it replays on change)
+    var animateTarget by remember(bar) { mutableStateOf(false) }
+    LaunchedEffect(bar) { animateTarget = true }
     val growFraction by animateFloatAsState(
         targetValue = if (animateTarget) 1f else 0f,
         animationSpec = tween(500),

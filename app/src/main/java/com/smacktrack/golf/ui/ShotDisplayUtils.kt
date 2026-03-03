@@ -1,5 +1,8 @@
 package com.smacktrack.golf.ui
 
+import com.smacktrack.golf.location.WindCalculator
+import kotlin.math.roundToInt
+
 /**
  * Pure formatting extensions for [ShotResult] — no Compose dependency.
  * Usable by both Compose UI and Canvas-based [ShotCardRenderer].
@@ -23,9 +26,9 @@ fun ShotResult.shortUnitLabel(unit: DistanceUnit): String =
 
 fun ShotResult.formatWindSpeed(unit: WindUnit): String =
     if (unit == WindUnit.KMH) {
-        "${windSpeedKmh.toInt()} km/h"
+        "${windSpeedKmh.roundToInt()} km/h"
     } else {
-        "${(windSpeedKmh * 0.621371).toInt()} mph"
+        "${(windSpeedKmh * 0.621371).roundToInt()} mph"
     }
 
 // ── Temperature ─────────────────────────────────────────────────────────────
@@ -49,6 +52,23 @@ fun ShotResult.percentileAmongClub(shotHistory: List<ShotResult>, unit: Distance
     val thisDistance = primaryDistance(unit)
     val beatenCount = priorShots.count { thisDistance >= it.primaryDistance(unit) }
     return beatenCount.toFloat() / priorShots.size.toFloat() * 100f
+}
+
+// ── Weather-adjusted distance ───────────────────────────────────────────────
+
+fun distanceFor(shot: ShotResult, useYards: Boolean, weatherAdjusted: Boolean, settings: AppSettings): Int {
+    val raw = if (useYards) shot.distanceYards else shot.distanceMeters
+    if (!weatherAdjusted) return raw
+    val effect = WindCalculator.analyze(
+        windSpeedKmh = shot.windSpeedKmh,
+        windFromDegrees = shot.windDirectionDegrees,
+        shotBearingDegrees = shot.shotBearingDegrees,
+        distanceYards = shot.distanceYards,
+        trajectoryMultiplier = settings.trajectory.multiplier,
+        temperatureF = shot.temperatureF
+    )
+    val adjustedYards = (shot.distanceYards - effect.totalWeatherEffectYards).coerceAtLeast(0)
+    return if (useYards) adjustedYards else (adjustedYards * 0.9144).roundToInt()
 }
 
 // ── Wind strength label ─────────────────────────────────────────────────────

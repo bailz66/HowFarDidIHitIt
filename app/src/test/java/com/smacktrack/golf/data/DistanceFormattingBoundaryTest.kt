@@ -1,7 +1,6 @@
 package com.smacktrack.golf.data
 
 import com.smacktrack.golf.location.metersToYards
-import com.smacktrack.golf.location.yardsToMeters
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.params.ParameterizedTest
@@ -30,14 +29,14 @@ class DistanceFormattingBoundaryTest {
         "300.0,   274.32,  0.01"
     )
     fun `yards to meters conversion`(yards: Double, expectedMeters: Double, tolerance: Double) {
-        assertEquals(expectedMeters, yardsToMeters(yards), tolerance)
+        assertEquals(expectedMeters, yards * 0.9144, tolerance)
     }
 
     @ParameterizedTest(name = "round-trip: {0}m")
     @ValueSource(doubles = [0.0, 1.0, 100.0, 274.32, 500.0])
     fun `round trip meters to yards and back`(meters: Double) {
         val yards = metersToYards(meters)
-        val backToMeters = yardsToMeters(yards)
+        val backToMeters = yards * 0.9144
         assertEquals(meters, backToMeters, 0.0001, "Round trip failed for $meters meters")
     }
 

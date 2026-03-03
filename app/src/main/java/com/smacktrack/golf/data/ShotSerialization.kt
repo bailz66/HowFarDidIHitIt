@@ -27,17 +27,17 @@ internal fun ShotResult.toJson(): JSONObject = JSONObject().apply {
 }
 
 internal fun JSONObject.toShotResult(): ShotResult = ShotResult(
-    club = enumValueOfOrNull<Club>(getString("club")) ?: Club.DRIVER,
-    distanceYards = getInt("distanceYards"),
-    distanceMeters = getInt("distanceMeters"),
-    weatherDescription = getString("weatherDescription"),
-    temperatureF = getInt("temperatureF"),
-    temperatureC = getInt("temperatureC"),
-    windSpeedKmh = getDouble("windSpeedKmh"),
-    windDirectionCompass = getString("windDirectionCompass"),
+    club = enumValueOfOrNull<Club>(optString("club", "DRIVER")) ?: Club.DRIVER,
+    distanceYards = optInt("distanceYards", 0),
+    distanceMeters = optInt("distanceMeters", 0),
+    weatherDescription = optString("weatherDescription", ""),
+    temperatureF = optInt("temperatureF", 70),
+    temperatureC = optInt("temperatureC", 21),
+    windSpeedKmh = optDouble("windSpeedKmh", 0.0),
+    windDirectionCompass = optString("windDirectionCompass", "N"),
     windDirectionDegrees = optInt("windDirectionDegrees", 0),
     shotBearingDegrees = optDouble("shotBearingDegrees", 0.0),
-    timestampMs = optLong("timestampMs", System.currentTimeMillis())
+    timestampMs = optLong("timestampMs", 0L)
 )
 
 // ── Firestore serialization ─────────────────────────────────────────────────

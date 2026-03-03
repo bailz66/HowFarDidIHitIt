@@ -25,16 +25,19 @@ com.smacktrack.golf/
 ├── location/
 │   ├── LocationProvider.kt      # FusedLocationProviderClient wrapper
 │   ├── GpsCalibrator.kt         # Accuracy-weighted multi-sample calibration
-│   ├── HaversineCalculator.kt   # Haversine distance (lat/lon → meters/yards)
+│   ├── HaversineCalculator.kt   # Haversine distance + bearing (lat/lon → meters/yards)
 │   └── WindCalculator.kt        # TrackMan-calibrated wind physics
 ├── network/
-│   ├── WeatherService.kt        # Open-Meteo API calls
-│   └── WeatherMapper.kt         # JSON deserialization
+│   ├── WeatherService.kt        # Open-Meteo API (locale-safe URL formatting)
+│   └── WeatherMapper.kt         # WMO codes, compass, weatherGroup mapping
 ├── data/
-│   ├── ShotRepository.kt        # Hybrid local + Firestore persistence
+│   ├── ShotRepository.kt        # Hybrid local (SharedPreferences) + Firestore persistence
 │   ├── AchievementRepository.kt # Achievement persistence + migration
+│   ├── AnalyticsTracker.kt      # Shot analytics event tracking
 │   ├── AuthManager.kt           # Firebase Auth + Credential Manager
-│   └── ShotSerialization.kt     # ShotResult ↔ JSON/Firestore
+│   └── ShotSerialization.kt     # ShotResult ↔ JSON/Firestore (safe deserialization)
+├── service/
+│   └── ShotTrackingService.kt   # Foreground service for GPS during screen lock
 ├── validation/
 │   └── ShotValidator.kt
 └── ui/
@@ -43,14 +46,19 @@ com.smacktrack.golf/
     ├── share/
     │   ├── ShareUtil.kt         # PNG → FileProvider → share intent
     │   └── ShotCardRenderer.kt  # Canvas-based shot card image
-    ├── theme/                   # Material 3, Poppins font, club/wind colors
+    ├── theme/
+    │   ├── ChipColors.kt        # Shared chip/gradient colors
+    │   ├── Color.kt             # WCAG AA-compliant palette
+    │   ├── Theme.kt             # Material 3 light theme, Poppins font
+    │   └── Type.kt              # Typography (Poppins + Roboto tabular figures)
     └── screen/
         ├── ShotTrackerScreen.kt     # Core: Smack → Walk → Track → Result
         ├── AnalyticsScreen.kt       # Club stats, trends, sparklines
         ├── HistoryScreen.kt         # Session-grouped shot history
         ├── SettingsScreen.kt        # Units, clubs, cloud sync, achievements
         ├── AchievementGallery.kt    # Achievement grid + detail dialog
-        └── ChartComponents.kt      # Reusable charts, counters, session cards
+        ├── ChartComponents.kt       # Reusable charts, counters, session cards
+        └── DistanceChartView.kt     # Distance chart visualization
 ```
 
 ## Environment
@@ -125,24 +133,28 @@ export JAVA_HOME="F:/android-studio/jbr"
 - **Java**: VERSION_11, **Kotlin**: 2.0.21
 - **Compose BOM**: 2024.09.00
 - **Release signing**: env vars (KEYSTORE_FILE, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD)
-- **ProGuard**: minification + resource shrinking enabled for release
+- **ProGuard**: minification + resource shrinking enabled for release, Log.v/d/i stripped
 
 ## Core Features
 
 ### Shot Flow (the product)
 - **Smack page** — centered Smack button, last 3 recent shots, session summary card
 - **Walking page** — live distance counter, club selection chips, Track button
-- **Result page** — distance card with weather, wind arrow, wind-adjusted carry, share button
+- **Result page** — distance card with weather, wind arrow, wind-adjusted carry, GPS accuracy indicator, share button
 - **GPS calibration** — accuracy-weighted multi-sample calibration; start 3.5s, end 2s
+- **Foreground service** — keeps GPS alive when screen locks during walking phase (notification-only shell)
+- **Screen keep-awake** — FLAG_KEEP_SCREEN_ON during active tracking phases
+- **Shot timeout** — 15-minute auto-reset for abandoned shots
+- **Distance clamping** — NaN/infinite → 0, >500yd → capped at 500 with toast warning
 
 ### Supplementary Features
 - **History page** — session-grouped shot history with pagination, delete confirmation
-- **Analytics (Stats tab)** — per-club AVG/LNG/SHT, sparklines, scatter strips, trend analysis, time period filtering
+- **Analytics (Stats tab)** — per-club AVG/LNG/SHT, sparklines, scatter strips, trend analysis, time period filtering, wind-adjusted toggle
 - **Settings** — distance/wind/temperature units, trajectory (Low/Mid/High), club toggles
 - **Achievements** — 12 categories × 5 tiers (Bronze→Diamond), gallery dialog, unlock banners
 - **Cloud sync** — Google Sign-in, Firestore sync, local SharedPreferences fallback
 - **Share** — Canvas-rendered shot card PNG shared via FileProvider
-- **Weather** — Open-Meteo API, wind-adjusted carry (TrackMan-calibrated physics)
+- **Weather** — Open-Meteo API, wind-adjusted carry (TrackMan-calibrated physics), manual wind direction/speed control
 
 ## Key Data Models
 
@@ -156,7 +168,7 @@ export JAVA_HOME="F:/android-studio/jbr"
 
 - **Project**: `smashtrack-a2c99` (Firebase Console)
 - **Plan**: Spark (free tier) — no billing required
-- **Firestore**: test mode (rules expire after 30 days — add security rules before publishing)
+- **Firestore**: production security rules (user-isolated by UID, increment-only global stats)
 - **Auth**: Google Sign-in via Credential Manager API
 - **`app/google-services.json`**: downloaded from Firebase Console — do NOT commit to public repos
 - **Data structure**:

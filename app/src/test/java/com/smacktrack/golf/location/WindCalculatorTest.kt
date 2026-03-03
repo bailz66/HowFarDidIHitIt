@@ -108,6 +108,23 @@ class WindCalculatorTest {
             val angle = WindCalculator.relativeWindAngle(350, 10.0)
             assertEquals(160f, angle, 0.01f)
         }
+
+        @Test
+        @DisplayName("360° wind direction treated same as 0°")
+        fun windFrom360() {
+            // 360 % 360 = 0, so windGoesTo = 180, same as windFrom=0
+            val from360 = WindCalculator.relativeWindAngle(360, 0.0)
+            val from0 = WindCalculator.relativeWindAngle(0, 0.0)
+            assertEquals(from0, from360, 0.01f)
+        }
+
+        @Test
+        @DisplayName("360° shot bearing equivalent to 0°")
+        fun shotBearing360() {
+            val to360 = WindCalculator.relativeWindAngle(180, 360.0)
+            val to0 = WindCalculator.relativeWindAngle(180, 0.0)
+            assertEquals(to0, to360, 0.01f)
+        }
     }
 
     // ── decomposeWind ───────────────────────────────────────────────────────
@@ -319,6 +336,48 @@ class WindCalculatorTest {
                 WindCalculator.windColorCategory(90f),
                 WindCalculator.windColorCategory(-90f)
             )
+        }
+
+        @Test
+        @DisplayName("boundary 22.5° is STRONG_HELPING, 22.51° is HELPING")
+        fun boundaryStrongHelpingToHelping() {
+            assertEquals(WindCalculator.WindColorCategory.STRONG_HELPING, WindCalculator.windColorCategory(22.5f))
+            assertEquals(WindCalculator.WindColorCategory.HELPING, WindCalculator.windColorCategory(22.51f))
+        }
+
+        @Test
+        @DisplayName("boundary 56.25° is HELPING, 56.26° is SLIGHT_HELPING")
+        fun boundaryHelpingToSlightHelping() {
+            assertEquals(WindCalculator.WindColorCategory.HELPING, WindCalculator.windColorCategory(56.25f))
+            assertEquals(WindCalculator.WindColorCategory.SLIGHT_HELPING, WindCalculator.windColorCategory(56.26f))
+        }
+
+        @Test
+        @DisplayName("boundary 78.75° is SLIGHT_HELPING, 78.76° is CROSSWIND")
+        fun boundarySlightHelpingToCrosswind() {
+            assertEquals(WindCalculator.WindColorCategory.SLIGHT_HELPING, WindCalculator.windColorCategory(78.75f))
+            assertEquals(WindCalculator.WindColorCategory.CROSSWIND, WindCalculator.windColorCategory(78.76f))
+        }
+
+        @Test
+        @DisplayName("boundary 101.25° is CROSSWIND, 101.26° is SLIGHT_HURTING")
+        fun boundaryCrosswindToSlightHurting() {
+            assertEquals(WindCalculator.WindColorCategory.CROSSWIND, WindCalculator.windColorCategory(101.25f))
+            assertEquals(WindCalculator.WindColorCategory.SLIGHT_HURTING, WindCalculator.windColorCategory(101.26f))
+        }
+
+        @Test
+        @DisplayName("boundary 123.75° is SLIGHT_HURTING, 123.76° is HURTING")
+        fun boundarySlightHurtingToHurting() {
+            assertEquals(WindCalculator.WindColorCategory.SLIGHT_HURTING, WindCalculator.windColorCategory(123.75f))
+            assertEquals(WindCalculator.WindColorCategory.HURTING, WindCalculator.windColorCategory(123.76f))
+        }
+
+        @Test
+        @DisplayName("boundary 157.5° is HURTING, 157.51° is STRONG_HURTING")
+        fun boundaryHurtingToStrongHurting() {
+            assertEquals(WindCalculator.WindColorCategory.HURTING, WindCalculator.windColorCategory(157.5f))
+            assertEquals(WindCalculator.WindColorCategory.STRONG_HURTING, WindCalculator.windColorCategory(157.51f))
         }
     }
 }

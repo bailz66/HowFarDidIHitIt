@@ -61,13 +61,26 @@ class HaversineTest {
 app/src/test/java/com/smacktrack/golf/
 ├── data/
 │   ├── ClubEnumBoundaryTest.kt
-│   └── DistanceFormattingBoundaryTest.kt
+│   ├── DistanceFormattingBoundaryTest.kt
+│   ├── MigrationLogicTest.kt
+│   └── ShotSerializationTest.kt
+├── domain/
+│   └── AchievementCheckerTest.kt
 ├── location/
-│   ├── GpsCalibrationBoundaryTest.kt
-│   └── HaversineBoundaryTest.kt
+│   ├── BearingTest.kt
+│   ├── CalibrateWeightedTest.kt
+│   ├── HaversineBoundaryTest.kt
+│   ├── WindCalculatorTest.kt
+│   └── WindCalculatorTrajectoryTest.kt
 ├── network/
 │   ├── WeatherBoundaryTest.kt
+│   ├── WeatherGroupTest.kt
 │   └── WeatherServiceParseTest.kt
+├── ui/
+│   ├── ShotDisplayUtilsTest.kt
+│   ├── ShotManagementLogicTest.kt
+│   └── screen/
+│       └── ChartComponentsTest.kt
 └── validation/
     ├── GpsCoordinateValidationTest.kt
     ├── ShotDistanceValidationTest.kt
@@ -85,7 +98,7 @@ app/src/androidTest/java/com/smacktrack/golf/
 └── ExampleInstrumentedTest.kt
 ```
 
-Currently a basic instrumented test to verify the app context. Room/DAO tests are not applicable — the app uses in-memory data only (no database).
+Currently a basic instrumented test to verify the app context.
 
 ## UI Tests (Compose Testing)
 Test user workflows through the actual Compose UI. Currently planned but not yet implemented.
@@ -164,22 +177,20 @@ All boundary tests use JUnit 5 `@ParameterizedTest` with `@CsvSource` for tabula
 | Prime Meridian crossing | (51.5, -0.1) | (51.5, 0.1) | ~13.8km | 200m |
 | Atlanta to Augusta | (33.749, -84.388) | (33.474, -82.010) | ~230km | 1.5km |
 
-### GPS Calibration Boundaries (`GpsCalibrationBoundaryTest.kt`)
+### GPS Calibration Boundaries (`CalibrateWeightedTest.kt`)
+
+Tests for the accuracy-weighted GPS calibration algorithm with inverse-variance weighting, accuracy gating, and MAD-based outlier rejection.
 
 | Test Case | Input | Expected |
 |-----------|-------|----------|
-| Min samples (3) | 3 tight points | Valid calibrated coordinate |
-| Below min (2) | 2 points | `null` |
-| Single sample | 1 point | `null` |
-| Empty list | 0 points | `null` |
-| Tight cluster + 1 spike | 4 close + 1 far | Close to cluster center |
-| Tight cluster + 2 spikes | 3 close + 2 far | Close to cluster center |
-| All identical | 5x same point | That exact coordinate |
-| Extreme coordinates | Near poles | Valid result |
-| Crossing 0° longitude | Points around Greenwich | lon ≈ 0 |
-| 10 samples (max typical) | 10 spread points | Close to center |
-| All outliers (scattered) | 3 far-apart points | `null` or valid |
-| Negative latitude | Southern hemisphere | Correct negative lat |
+| Cold start skip | First sample dropped | Calibration uses remaining |
+| Accuracy gating | Samples above 20m rejected | Only precise samples used |
+| Min samples (3) after gating | 4+ samples, 3+ pass gate | Valid position |
+| Below min after gating | All samples above gate | `null` |
+| Outlier rejection | Cluster + far spike | Close to cluster center |
+| All identical | Same coordinate, varying accuracy | That exact coordinate |
+| Inverse-variance weighting | Low-accuracy vs high-accuracy | Weighted toward precise |
+| Estimated accuracy | RMS from final position | Non-negative accuracy |
 
 ### Weather Mapping Boundaries (`WeatherBoundaryTest.kt`)
 
@@ -370,25 +381,61 @@ fun `special floating point values are rejected`(value: Double) {
 ```
 com/smacktrack/golf/
 ├── data/
-│   ├── ClubEnumBoundaryTest.kt         (8 test cases)
-│   └── DistanceFormattingBoundaryTest.kt (8 parameterized groups)
+│   ├── ClubEnumBoundaryTest.kt          (16 test cases)
+│   └── DistanceFormattingBoundaryTest.kt (6 parameterized groups)
 ├── location/
-│   ├── HaversineBoundaryTest.kt        (12 parameterized cases)
-│   └── GpsCalibrationBoundaryTest.kt   (12 test cases)
+│   └── HaversineBoundaryTest.kt         (2 parameterized cases)
 └── network/
-    ├── WeatherBoundaryTest.kt          (25+ parameterized cases)
-    └── WeatherServiceParseTest.kt      (8 test cases)
+    ├── WeatherBoundaryTest.kt           (7 parameterized cases)
+    └── WeatherServiceParseTest.kt       (10 test cases — parsing, NaN guard, edge cases)
+```
+
+### Data & Serialization Tests (`app/src/test/`)
+```
+com/smacktrack/golf/
+├── data/
+│   ├── MigrationLogicTest.kt           (16 test cases)
+│   └── ShotSerializationTest.kt        (22 test cases — JSON round-trip, Firestore maps, safe defaults)
+└── domain/
+    └── AchievementCheckerTest.kt        (33 test cases — all 12 categories + tier boundaries + edge cases)
+```
+
+### Location & Wind Tests (`app/src/test/`)
+```
+com/smacktrack/golf/
+└── location/
+    ├── BearingTest.kt                   (16 tests — N/S/E/W, NE, date line, range)
+    ├── CalibrateWeightedTest.kt         (22 tests — accuracy gating, weighting, outlier rejection)
+    ├── WindCalculatorTest.kt            (55 tests — wind effects, temperature, crosswind, boundary transitions)
+    └── WindCalculatorTrajectoryTest.kt  (12 tests — trajectory multipliers, analyze())
+```
+
+### Weather Tests (`app/src/test/`)
+```
+com/smacktrack/golf/
+└── network/
+    └── WeatherGroupTest.kt             (2 parameterized groups — 28 WMO code mappings)
+```
+
+### UI & Logic Tests (`app/src/test/`)
+```
+com/smacktrack/golf/
+└── ui/
+    ├── ShotDisplayUtilsTest.kt          (25 tests — formatting, percentiles, distanceFor, METERS mode)
+    ├── ShotManagementLogicTest.kt       (22 tests — delete, wind, clubs, fallbacks)
+    └── screen/
+        └── ChartComponentsTest.kt       (22 tests — chart calculations, currentActiveSession)
 ```
 
 ### Data Validation Tests (`app/src/test/`)
 ```
 com/smacktrack/golf/
 └── validation/
-    ├── GpsCoordinateValidationTest.kt   (coordinate range + NaN/Infinity)
-    ├── ShotDistanceValidationTest.kt    (hard limits + per-club ranges)
-    ├── WeatherDataValidationTest.kt     (Earth extremes + all-or-nothing)
-    ├── TimestampValidationTest.kt       (epoch ms, not future, after 2023)
-    └── ShotEntityValidationTest.kt      (full entity integration validation)
+    ├── GpsCoordinateValidationTest.kt   (12 — coordinate range + NaN/Infinity)
+    ├── ShotDistanceValidationTest.kt    (11 — hard limits + per-club ranges)
+    ├── WeatherDataValidationTest.kt     (26 — Earth extremes + all-or-nothing)
+    ├── TimestampValidationTest.kt       (16 — epoch ms, not future, after 2023)
+    └── ShotEntityValidationTest.kt      (16 — full entity integration validation)
 ```
 
-**Total: 11 test files** across boundary, validation, and API parsing categories.
+**Total: 21 test files, 462 test executions** across boundary, validation, serialization, domain logic, location, wind, weather, UI, and shot management categories.

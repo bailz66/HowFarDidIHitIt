@@ -116,21 +116,26 @@ fun checkAchievements(
         if (highest >= 0) unlockUpTo(cat, highest)
     }
 
-    // HOT_STREAK — longest consecutive streak above club avg (excluding own shot from avg)
+    // HOT_STREAK — longest consecutive same-club streak above running club avg
     run {
         val cat = AchievementCategory.HOT_STREAK
         val sorted = allShots.sortedBy { it.timestampMs }
         var longestStreak = 0
         var currentStreak = 0
+        var lastStreakClub: Club? = null
         for (shot in sorted) {
-            val clubOthers = allShots.filter { it.club == shot.club && it.timestampMs != shot.timestampMs }
-            val aboveAvg = if (clubOthers.isEmpty()) false
-            else shot.distanceYards > clubOthers.map { it.distanceYards }.average()
-            if (aboveAvg) {
+            // Only compare against prior shots with the same club (running average)
+            val priorClub = sorted.filter { it.club == shot.club && it.timestampMs < shot.timestampMs }
+            val aboveAvg = if (priorClub.isEmpty()) false
+            else shot.distanceYards > priorClub.map { it.distanceYards }.average()
+            // Streak resets when club changes or shot is not above average
+            if (aboveAvg && (lastStreakClub == null || lastStreakClub == shot.club)) {
                 currentStreak++
+                lastStreakClub = shot.club
                 if (currentStreak > longestStreak) longestStreak = currentStreak
             } else {
-                currentStreak = 0
+                currentStreak = if (aboveAvg) 1 else 0
+                lastStreakClub = if (aboveAvg) shot.club else null
             }
         }
         val highest = cat.tiers.indexOfLast { longestStreak >= it.threshold }

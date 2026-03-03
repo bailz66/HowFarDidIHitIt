@@ -57,7 +57,8 @@ fun calibrateWeighted(samples: List<GpsSample>): CalibratedPosition? {
 
     // Step 4: MAD-based outlier rejection on distance from centroid
     val distances = gated.map { haversineMeters(GpsCoordinate(it.lat, it.lon), centroid) }
-    val madDistance = median(distances)
+    val medianDistance = median(distances)
+    val madDistance = median(distances.map { kotlin.math.abs(it - medianDistance) })
 
     val threshold = if (madDistance < 0.01) {
         // All points nearly identical — accept everything
@@ -110,36 +111,6 @@ private fun weightedCentroid(samples: List<GpsSample>): GpsCoordinate {
     }
 
     return GpsCoordinate(sumLat / totalWeight, sumLon / totalWeight)
-}
-
-/**
- * Legacy calibration — simple median + MAD outlier rejection without accuracy weighting.
- * Kept for backward compatibility with existing tests.
- */
-fun calibrate(samples: List<GpsCoordinate>): GpsCoordinate? {
-    if (samples.size < MIN_SAMPLES) return null
-
-    val medianLat = median(samples.map { it.lat })
-    val medianLon = median(samples.map { it.lon })
-    val medianCoord = GpsCoordinate(medianLat, medianLon)
-
-    val distances = samples.map { haversineMeters(it, medianCoord) }
-    val madDistance = median(distances)
-
-    val threshold = if (madDistance == 0.0) {
-        Double.MAX_VALUE
-    } else {
-        madDistance * 2.0
-    }
-
-    val inliers = samples.filterIndexed { index, _ -> distances[index] <= threshold }
-
-    if (inliers.size < MIN_SAMPLES) return null
-
-    val avgLat = inliers.map { it.lat }.average()
-    val avgLon = inliers.map { it.lon }.average()
-
-    return GpsCoordinate(avgLat, avgLon)
 }
 
 private fun median(values: List<Double>): Double {

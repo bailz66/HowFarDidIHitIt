@@ -12,6 +12,7 @@ import android.graphics.Typeface
 import androidx.core.content.res.ResourcesCompat
 import com.smacktrack.golf.R
 import com.smacktrack.golf.location.WindCalculator
+import kotlin.math.roundToInt
 import com.smacktrack.golf.ui.AppSettings
 import com.smacktrack.golf.ui.DistanceUnit
 import com.smacktrack.golf.ui.ShotResult
@@ -245,7 +246,7 @@ object ShotCardRenderer {
         y += 160f
 
         // 9. Weather-adjusted distance (wind + temperature)
-        if (result.windSpeedKmh > 0 || result.temperatureF != 70) {
+        if (result.weatherDescription.isNotBlank() && (result.windSpeedKmh > 0 || result.temperatureF != 70)) {
             val weatherEffect = WindCalculator.analyze(
                 windSpeedKmh = result.windSpeedKmh,
                 windFromDegrees = result.windDirectionDegrees,
@@ -254,34 +255,39 @@ object ShotCardRenderer {
                 trajectoryMultiplier = settings.trajectory.multiplier,
                 temperatureF = result.temperatureF
             )
-            val adjustedYards = (result.distanceYards - weatherEffect.totalWeatherEffectYards).coerceAtLeast(0)
-            val adjustedMeters = (adjustedYards * 0.9144).toInt()
-            val adjustedDisplay = if (settings.distanceUnit == DistanceUnit.YARDS) "$adjustedYards" else "$adjustedMeters"
-            val unitLabel = result.shortUnitLabel(settings.distanceUnit)
-            val diff = weatherEffect.totalWeatherEffectYards
-            val diffText = if (diff >= 0) "(+$diff)" else "($diff)"
+            // Skip if total effect is trivial
+            if (kotlin.math.abs(weatherEffect.totalWeatherEffectYards) >= 3) {
+                val adjustedYards = (result.distanceYards - weatherEffect.totalWeatherEffectYards).coerceAtLeast(0)
+                val adjustedMeters = (adjustedYards * 0.9144).roundToInt()
+                val adjustedDisplay = if (settings.distanceUnit == DistanceUnit.YARDS) "$adjustedYards" else "$adjustedMeters"
+                val unitLabel = result.shortUnitLabel(settings.distanceUnit)
+                val diffYds = weatherEffect.totalWeatherEffectYards
+                val diff = if (settings.distanceUnit == DistanceUnit.YARDS) diffYds
+                    else (diffYds * 0.9144).roundToInt()
+                val diffText = if (diff >= 0) "(+$diff)" else "($diff)"
 
-            val adjustedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                typeface = poppinsSemiBold
-                textSize = 30f
-                color = TEXT_SECONDARY
-                textAlign = Paint.Align.CENTER
+                val adjustedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    typeface = poppinsSemiBold
+                    textSize = 30f
+                    color = TEXT_SECONDARY
+                    textAlign = Paint.Align.CENTER
+                }
+                val diffPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    typeface = poppinsSemiBold
+                    textSize = 30f
+                    color = windCategoryColorInt(weatherEffect.colorCategory)
+                }
+
+                val baseText = "Weather Adjusted: $adjustedDisplay $unitLabel "
+                val baseWidth = adjustedPaint.measureText(baseText)
+                val diffWidth = diffPaint.measureText(diffText)
+                val totalWidth = baseWidth + diffWidth
+                val startX = CENTER_X - totalWidth / 2
+
+                adjustedPaint.textAlign = Paint.Align.LEFT
+                canvas.drawText(baseText, startX, y + 28f, adjustedPaint)
+                canvas.drawText(diffText, startX + baseWidth, y + 28f, diffPaint)
             }
-            val diffPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                typeface = poppinsSemiBold
-                textSize = 30f
-                color = windCategoryColorInt(weatherEffect.colorCategory)
-            }
-
-            val baseText = "Weather Adjusted: $adjustedDisplay $unitLabel "
-            val baseWidth = adjustedPaint.measureText(baseText)
-            val diffWidth = diffPaint.measureText(diffText)
-            val totalWidth = baseWidth + diffWidth
-            val startX = CENTER_X - totalWidth / 2
-
-            adjustedPaint.textAlign = Paint.Align.LEFT
-            canvas.drawText(baseText, startX, y + 28f, adjustedPaint)
-            canvas.drawText(diffText, startX + baseWidth, y + 28f, diffPaint)
         }
 
         // 10. Date/time stamp

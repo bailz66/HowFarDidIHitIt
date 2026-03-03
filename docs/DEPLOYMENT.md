@@ -291,12 +291,15 @@ Use `r0adkll/upload-google-play` GitHub Action or Fastlane to automate Play Stor
 - Patch: bug fixes
 
 ## Pre-Release Checklist
-- [ ] All tests passing in CI
+- [ ] All 348+ tests passing in CI
 - [ ] Lint clean (zero warnings)
 - [ ] Manual testing on physical device
 - [ ] Version code and name bumped
 - [ ] Release notes written
 - [ ] Screenshots updated (if UI changed)
 - [ ] ProGuard/R8 rules verified (no runtime crashes in release build)
+- [ ] Log stripping verified (Log.v/d/i removed from release APK)
+- [ ] Firestore security rules deployed
+- [ ] Release SHA-1 registered in Firebase Console
 - [ ] App size checked (target: < 10MB)
 - [ ] Privacy policy URL set (Play Store requires this)

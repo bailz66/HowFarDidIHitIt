@@ -1,7 +1,7 @@
 # Data Model
 
 ## Overview
-All data is held **in-memory** within `ShotTrackerViewModel`. There is no database, no persistence, and no cloud sync. Data resets when the app is restarted. This is intentional for v1 simplicity.
+Application state is managed by `ShotTrackerViewModel` and exposed as `StateFlow<ShotTrackerUiState>`. Persistence uses a hybrid approach: SharedPreferences for local storage, Firestore for cloud sync when signed in. The app is offline-first — all features work without internet.
 
 ## State Container
 
@@ -15,7 +15,9 @@ data class ShotTrackerUiState(
     val shotResult: ShotResult? = null,
     val shotHistory: List<ShotResult> = emptyList(),
     val settings: AppSettings = AppSettings(),
-    val locationPermissionGranted: Boolean = false
+    val locationPermissionGranted: Boolean = false,
+    val gpsAccuracyMeters: Double? = null,
+    // ... plus additional fields for wind control, achievements, auth state
 )
 ```
 
@@ -34,14 +36,15 @@ data class ShotResult(
     val windSpeedKmh: Double,
     val windDirectionCompass: String,
     val windDirectionDegrees: Int = 0,
-    val shotBearingDegrees: Double = 0.0
+    val shotBearingDegrees: Double = 0.0,
+    val timestampMs: Long = System.currentTimeMillis()
 )
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `club` | Club | The club used for this shot |
-| `distanceYards` | Int | Haversine distance in yards (rounded) |
+| `distanceYards` | Int | Haversine distance in yards (rounded, clamped 0-500) |
 | `distanceMeters` | Int | Haversine distance in meters (rounded) |
 | `weatherDescription` | String | WMO code mapped to label (e.g., "Clear sky") |
 | `temperatureF` | Int | Temperature in Fahrenheit (rounded) |
@@ -50,6 +53,7 @@ data class ShotResult(
 | `windDirectionCompass` | String | Compass direction (e.g., "NW", "SE") |
 | `windDirectionDegrees` | Int | Wind direction in degrees (0-360) |
 | `shotBearingDegrees` | Double | Bearing from start to end position |
+| `timestampMs` | Long | Unix epoch milliseconds when the shot was recorded |
 
 ## Weather Data
 
@@ -112,7 +116,7 @@ data class AppSettings(
 )
 ```
 
-Settings are in-memory and reset to defaults on app restart.
+Settings are persisted to SharedPreferences locally and synced to Firestore when signed in.
 
 ## Enums
 
@@ -167,5 +171,20 @@ GPS Fix → LocationUpdate → GpsSample → calibrateWeighted() → CalibratedP
                                                          ShotTrackerUiState.shotHistory
 ```
 
-## Future: Persistence
-When persistence is added (v2+), the in-memory `ShotResult` list would be replaced with Room database storage. The `ShotResult` data class maps naturally to a Room `@Entity`.
+## Persistence
+
+### Local Storage (SharedPreferences)
+- Shot history serialized as JSON array via `ShotSerialization.kt`
+- Settings stored as individual key-value pairs
+- Achievement state with migration support
+- Safe deserialization: `optString()`/`optInt()`/`optDouble()` with defaults; per-shot try/catch prevents one corrupt record from losing all data
+
+### Cloud Storage (Firestore)
+When signed in via Google, data syncs to Firestore:
+- `users/{uid}/shots/{timestampMs}` — shot documents
+- `users/{uid}/settings/prefs` — settings document
+- `users/{uid}/achievements/{storageKey}` — achievement documents
+- `stats/global` — increment-only global shot counter
+
+### Security Rules
+User data is isolated by UID. The `stats/global` document allows authenticated increment-only updates. See `firestore.rules` for full policy.

@@ -73,7 +73,7 @@ class AchievementRepository(context: Context) {
         return try {
             val obj = JSONObject(json)
             val map = mutableMapOf<String, Long>()
-            obj.keys().forEach { key -> map[key] = obj.getLong(key) }
+            obj.keys().forEach { key -> map[key] = obj.optLong(key, 0L) }
             map
         } catch (e: Exception) {
             Log.e("AchievementRepo", "Failed to load achievements", e)
@@ -131,5 +131,6 @@ class AchievementRepository(context: Context) {
             batch.set(ref, mapOf("name" to name, "unlockedAt" to ts), SetOptions.merge())
         }
         batch.commit().await()
+        prefs.edit().remove("unlocked").apply()
     }
 }

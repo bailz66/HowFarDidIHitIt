@@ -40,10 +40,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -58,10 +60,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -129,7 +133,8 @@ fun ShotTrackerScreen(
     onReset: () -> Unit,
     onWindDirectionChange: () -> Unit = {},
     onWindSpeedChange: (Double) -> Unit = {},
-    onDeleteShot: (Int) -> Unit = {},
+    onClubChanged: (Club) -> Unit = {},
+    onDeleteShot: (Long) -> Unit = {},
     onShotClicked: (ShotResult) -> Unit = {},
     animateEntrance: Boolean = false,
     newlyUnlockedAchievements: List<UnlockedAchievement> = emptyList(),
@@ -171,7 +176,7 @@ fun ShotTrackerScreen(
                 onShotClicked = onShotClicked,
                 animateEntrance = animateEntrance
             )
-            ShotPhase.CALIBRATING_START -> CalibratingContent(label = "Locking position")
+            ShotPhase.CALIBRATING_START -> CalibratingContent(label = "Marking start position", onCancel = onReset)
             ShotPhase.WALKING -> {
                 val club = uiState.selectedClub ?: return@AnimatedContent
                 WalkingContent(
@@ -185,16 +190,18 @@ fun ShotTrackerScreen(
                     onReset = onReset
                 )
             }
-            ShotPhase.CALIBRATING_END -> CalibratingContent(label = "Locking position")
+            ShotPhase.CALIBRATING_END -> CalibratingContent(label = "Marking end position", onCancel = onReset)
             ShotPhase.RESULT -> {
                 val result = uiState.shotResult ?: return@AnimatedContent
                 ResultContent(
                     result = result,
                     shotHistory = uiState.shotHistory,
                     settings = settings,
+                    gpsAccuracyMeters = uiState.gpsAccuracyMeters,
                     onNextShot = onNextShot,
                     onWindDirectionChange = onWindDirectionChange,
                     onWindSpeedChange = onWindSpeedChange,
+                    onClubChanged = onClubChanged,
                     newlyUnlockedAchievements = newlyUnlockedAchievements,
                     onAchievementsSeen = onAchievementsSeen
                 )
@@ -211,11 +218,11 @@ private fun ClubSelectContent(
     shotHistory: List<ShotResult>,
     settings: AppSettings,
     onStart: () -> Unit,
-    onDeleteShot: (Int) -> Unit = {},
+    onDeleteShot: (Long) -> Unit = {},
     onShotClicked: (ShotResult) -> Unit = {},
     animateEntrance: Boolean = false
 ) {
-    var pendingDeleteIndex by remember { mutableStateOf<Int?>(null) }
+    var pendingDeleteTimestamp by remember { mutableStateOf<Long?>(null) }
 
     // Stagger entrance animation state
     var staggerStarted by remember { mutableStateOf(false) }
@@ -268,19 +275,19 @@ private fun ClubSelectContent(
         }
     }
 
-    pendingDeleteIndex?.let { index ->
+    pendingDeleteTimestamp?.let { ts ->
         AlertDialog(
-            onDismissRequest = { pendingDeleteIndex = null },
+            onDismissRequest = { pendingDeleteTimestamp = null },
             title = { Text("Delete shot?") },
             text = { Text("This shot will be permanently removed.") },
             confirmButton = {
                 TextButton(onClick = {
-                    onDeleteShot(index)
-                    pendingDeleteIndex = null
+                    onDeleteShot(ts)
+                    pendingDeleteTimestamp = null
                 }) { Text("Delete", color = Color(0xFFE53935)) }
             },
             dismissButton = {
-                TextButton(onClick = { pendingDeleteIndex = null }) { Text("Cancel") }
+                TextButton(onClick = { pendingDeleteTimestamp = null }) { Text("Cancel") }
             }
         )
     }
@@ -341,7 +348,6 @@ private fun ClubSelectContent(
             Spacer(Modifier.height(10.dp))
 
             recentShots.forEachIndexed { displayIndex, shot ->
-                val actualIndex = shotHistory.indexOfFirst { it.timestampMs == shot.timestampMs }
                 Box(
                     modifier = Modifier.graphicsLayer {
                         alpha = shotAlphas.getOrElse(displayIndex) { 1f }
@@ -351,7 +357,7 @@ private fun ClubSelectContent(
                     RecentShotRow(
                         shot = shot,
                         settings = settings,
-                        onDelete = if (actualIndex >= 0) {{ pendingDeleteIndex = actualIndex }} else null,
+                        onDelete = { pendingDeleteTimestamp = shot.timestampMs },
                         onClick = { onShotClicked(shot) }
                     )
                 }
@@ -464,6 +470,7 @@ private fun EpicButton(
     pulsate: Boolean = false,
     onClick: () -> Unit
 ) {
+    var lastClickTime by remember { mutableLongStateOf(0L) }
     val infiniteTransition = rememberInfiniteTransition(label = "glow")
     val glowAlpha by infiniteTransition.animateFloat(
         initialValue = 0.2f,
@@ -510,7 +517,13 @@ private fun EpicButton(
                 .height(88.dp)
                 .clip(RoundedCornerShape(24.dp))
                 .background(gradient)
-                .clickable(enabled = enabled) { onClick() },
+                .clickable(enabled = enabled) {
+                    val now = System.currentTimeMillis()
+                    if (now - lastClickTime > 500) {
+                        lastClickTime = now
+                        onClick()
+                    }
+                },
             contentAlignment = Alignment.Center
         ) {
             Text(
@@ -527,7 +540,7 @@ private fun EpicButton(
 // ── Calibrating ─────────────────────────────────────────────────────────────
 
 @Composable
-private fun CalibratingContent(label: String) {
+private fun CalibratingContent(label: String, onCancel: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -553,6 +566,19 @@ private fun CalibratingContent(label: String) {
             style = MaterialTheme.typography.bodyMedium,
             color = TextSecondary
         )
+        Spacer(Modifier.height(24.dp))
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(50))
+                .clickable { onCancel() }
+                .padding(horizontal = 24.dp, vertical = 14.dp)
+        ) {
+            Text(
+                text = "Cancel",
+                style = MaterialTheme.typography.labelLarge,
+                color = TextTertiary
+            )
+        }
     }
 }
 
@@ -570,9 +596,28 @@ private fun WalkingContent(
     onEnd: () -> Unit,
     onReset: () -> Unit
 ) {
+    var showResetConfirm by remember { mutableStateOf(false) }
     val primaryDistance = if (settings.distanceUnit == DistanceUnit.YARDS) distanceYards else distanceMeters
     val primaryUnit = if (settings.distanceUnit == DistanceUnit.YARDS) "YARDS" else "METERS"
     val secondaryDistance = if (settings.distanceUnit == DistanceUnit.YARDS) "${distanceMeters}m" else "${distanceYards}yd"
+
+    if (showResetConfirm) {
+        AlertDialog(
+            onDismissRequest = { showResetConfirm = false },
+            title = { Text("Reset Shot?") },
+            text = { Text("Your current tracking progress will be lost.") },
+            confirmButton = {
+                TextButton(onClick = { showResetConfirm = false; onReset() }) {
+                    Text("Reset", color = Color(0xFFE53935))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showResetConfirm = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 
     Column(
         modifier = Modifier
@@ -629,11 +674,11 @@ private fun WalkingContent(
 
         Spacer(Modifier.height(16.dp))
 
-        // Reset — 48dp minimum touch target
+        // Reset — 48dp minimum touch target, with confirmation
         Box(
             modifier = Modifier
                 .clip(RoundedCornerShape(50))
-                .clickable { onReset() }
+                .clickable { showResetConfirm = true }
                 .padding(horizontal = 24.dp, vertical = 14.dp)
         ) {
             Text(
@@ -649,20 +694,33 @@ private fun WalkingContent(
 
 // ── Result ───────────────────────────────────────────────────────────────────
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ResultContent(
     result: ShotResult,
     shotHistory: List<ShotResult> = emptyList(),
     settings: AppSettings,
+    gpsAccuracyMeters: Double? = null,
     onNextShot: () -> Unit,
     onWindDirectionChange: () -> Unit = {},
     onWindSpeedChange: (Double) -> Unit = {},
+    onClubChanged: (Club) -> Unit = {},
     newlyUnlockedAchievements: List<UnlockedAchievement> = emptyList(),
     onAchievementsSeen: () -> Unit = {}
 ) {
     val percentile = remember(result, shotHistory, settings.distanceUnit) {
         result.percentileAmongClub(shotHistory, settings.distanceUnit)
     }
+    val isPersonalBest = percentile != null && percentile >= 100f
+
+    // PB gold glow animation
+    val pbGlow = rememberInfiniteTransition(label = "pb-glow")
+    val pbGlowAlpha by pbGlow.animateFloat(
+        initialValue = 0.3f,
+        targetValue = 0.7f,
+        animationSpec = infiniteRepeatable(tween(1200), RepeatMode.Reverse),
+        label = "pb-glow-alpha"
+    )
 
     Column(
         modifier = Modifier
@@ -673,20 +731,89 @@ private fun ResultContent(
     ) {
         Spacer(Modifier.height(16.dp))
 
-        // Result card
+        // Result card — gold border + glow for PB
+        val cardBorder = if (isPersonalBest)
+            Modifier.border(
+                2.5.dp,
+                Brush.linearGradient(listOf(Color(0xFFFFD54F), Color(0xFFFFAB00), Color(0xFFFFD54F))),
+                RoundedCornerShape(24.dp)
+            )
+        else
+            Modifier.border(1.5.dp, Color(0xFFE0E2DC), RoundedCornerShape(24.dp))
+
         Box(
             modifier = Modifier
                 .fillMaxWidth()
+                .then(
+                    if (isPersonalBest) Modifier.graphicsLayer {
+                        shadowElevation = 12f * pbGlowAlpha
+                        shape = RoundedCornerShape(24.dp)
+                        ambientShadowColor = Color(0xFFFFAB00)
+                        spotShadowColor = Color(0xFFFFAB00)
+                    } else Modifier
+                )
                 .clip(RoundedCornerShape(24.dp))
                 .background(Color.White)
-                .border(1.5.dp, Color(0xFFE0E2DC), RoundedCornerShape(24.dp))
+                .then(cardBorder)
                 .padding(28.dp)
         ) {
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                ClubBadge(result.club)
+                // PB trophy icon — animated entrance
+                if (isPersonalBest) {
+                    var trophyVisible by remember { mutableStateOf(false) }
+                    LaunchedEffect(Unit) {
+                        delay(400)
+                        trophyVisible = true
+                    }
+                    AnimatedVisibility(
+                        visible = trophyVisible,
+                        enter = fadeIn(tween(500)) + scaleIn(
+                            animationSpec = spring(dampingRatio = 0.5f, stiffness = 200f)
+                        )
+                    ) {
+                        Text(
+                            text = "\uD83C\uDFC6",
+                            fontSize = 36.sp
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
+
+                var showClubPicker by remember { mutableStateOf(false) }
+                Box(modifier = Modifier.clickable { showClubPicker = true }) {
+                    ClubBadge(result.club)
+                }
+                if (showClubPicker) {
+                    AlertDialog(
+                        onDismissRequest = { showClubPicker = false },
+                        confirmButton = {},
+                        title = { Text("Change Club") },
+                        text = {
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Club.entries
+                                    .filter { it in settings.enabledClubs }
+                                    .sortedBy { it.sortOrder }
+                                    .forEach { c ->
+                                        ClubChip(
+                                            club = c,
+                                            selected = c == result.club,
+                                            onClick = {
+                                                if (c != result.club) onClubChanged(c)
+                                                showClubPicker = false
+                                            }
+                                        )
+                                    }
+                            }
+                        }
+                    )
+                }
                 Spacer(Modifier.height(24.dp))
 
                 AnimatedCounter(
@@ -707,14 +834,77 @@ private fun ResultContent(
                     color = TextSecondary
                 )
 
+                // GPS accuracy indicator
+                if (gpsAccuracyMeters != null) {
+                    Spacer(Modifier.height(4.dp))
+                    val accuracyDisplay = if (settings.distanceUnit == DistanceUnit.YARDS)
+                        "${(gpsAccuracyMeters * 1.09361).toInt()} yd"
+                    else
+                        "${gpsAccuracyMeters.toInt()} m"
+                    val accuracyColor = if (gpsAccuracyMeters > 15.0) Color(0xFFE65100) else TextTertiary
+                    Text(
+                        text = "\u00B1$accuracyDisplay accuracy",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = accuracyColor
+                    )
+                }
+
                 // Celebration for top shots — animated entrance
                 if (percentile != null && percentile >= 80f) {
                     var badgeVisible by remember { mutableStateOf(false) }
                     LaunchedEffect(Unit) {
-                        delay(700)
+                        delay(if (isPersonalBest) 1000 else 700)
                         badgeVisible = true
                     }
                     when {
+                        isPersonalBest -> {
+                            Spacer(Modifier.height(20.dp))
+                            AnimatedVisibility(
+                                visible = badgeVisible,
+                                enter = fadeIn(tween(600)) + scaleIn(
+                                    animationSpec = spring(dampingRatio = 0.4f, stiffness = 180f)
+                                )
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(20.dp))
+                                            .background(
+                                                Brush.linearGradient(
+                                                    listOf(
+                                                        Color(0xFFFFD54F).copy(alpha = 0.2f),
+                                                        Color(0xFFFFAB00).copy(alpha = 0.15f),
+                                                        Color(0xFFFF8F00).copy(alpha = 0.2f)
+                                                    )
+                                                )
+                                            )
+                                            .border(
+                                                1.dp,
+                                                Color(0xFFFFAB00).copy(alpha = 0.3f),
+                                                RoundedCornerShape(20.dp)
+                                            )
+                                            .padding(horizontal = 28.dp, vertical = 12.dp)
+                                    ) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            Text(
+                                                text = "NEW PERSONAL BEST",
+                                                style = MaterialTheme.typography.labelMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFFFF8F00),
+                                                letterSpacing = 3.sp
+                                            )
+                                            Spacer(Modifier.height(4.dp))
+                                            Text(
+                                                text = "Absolutely Smacked!",
+                                                style = MaterialTheme.typography.titleLarge,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFFFFAB00)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         percentile >= 95f -> {
                             Spacer(Modifier.height(16.dp))
                             AnimatedVisibility(
@@ -764,49 +954,63 @@ private fun ResultContent(
                     }
                 }
 
-                Spacer(Modifier.height(24.dp))
+                // Only show weather strip if weather data was actually fetched
+                if (result.weatherDescription.isNotBlank()) {
+                    Spacer(Modifier.height(24.dp))
 
-                WeatherWindStrip(
-                    shot = result,
-                    settings = settings,
-                    editable = true,
-                    onDirectionTap = onWindDirectionChange,
-                    onSpeedUp = {
-                        val delta = if (settings.windUnit == WindUnit.MPH) 1.60934 else 1.0
-                        onWindSpeedChange(delta)
-                    },
-                    onSpeedDown = {
-                        val delta = if (settings.windUnit == WindUnit.MPH) -1.60934 else -1.0
-                        onWindSpeedChange(delta)
-                    }
-                )
+                    WeatherWindStrip(
+                        shot = result,
+                        settings = settings,
+                        editable = true,
+                        onDirectionTap = onWindDirectionChange,
+                        onSpeedUp = {
+                            val delta = if (settings.windUnit == WindUnit.MPH) 1.60934 else 1.0
+                            onWindSpeedChange(delta)
+                        },
+                        onSpeedDown = {
+                            val delta = if (settings.windUnit == WindUnit.MPH) -1.60934 else -1.0
+                            onWindSpeedChange(delta)
+                        }
+                    )
 
-                WeatherAdjustedDistance(shot = result, settings = settings)
+                    WeatherAdjustedDistance(shot = result, settings = settings)
+                }
             }
         }
 
         Spacer(Modifier.height(16.dp))
         ShareShotButton(shot = result, settings = settings, shotHistory = shotHistory)
 
-        // Achievement unlock banners
+        // Achievement unlock banners — delayed so user sees distance first
         if (newlyUnlockedAchievements.isNotEmpty()) {
-            Spacer(Modifier.height(16.dp))
-            newlyUnlockedAchievements.forEach { ua ->
-                val tColor = tierColor(ua.tier)
-                val tLabel = tierLabel(ua.tier).uppercase()
-                val tierDesc = ua.category.tiers.getOrNull(ua.tier.ordinal)?.description ?: ""
-                AchievementUnlockBanner(
-                    emoji = ua.category.icon,
-                    title = ua.category.displayName,
-                    description = tierDesc,
-                    tierLabel = tLabel,
-                    tierColor = tColor
-                )
-                Spacer(Modifier.height(8.dp))
+            var showBanners by remember { mutableStateOf(false) }
+            LaunchedEffect(Unit) {
+                delay(1500) // Let user read distance before showing celebrations
+                showBanners = true
             }
-            LaunchedEffect(newlyUnlockedAchievements) {
-                delay(3000)
-                onAchievementsSeen()
+            if (showBanners) {
+                Spacer(Modifier.height(16.dp))
+                newlyUnlockedAchievements.forEach { ua ->
+                    val tColor = tierColor(ua.tier)
+                    val tLabel = tierLabel(ua.tier).uppercase()
+                    val tierDesc = ua.category.tiers.getOrNull(ua.tier.ordinal)?.description ?: ""
+                    AchievementUnlockBanner(
+                        emoji = ua.category.icon,
+                        title = ua.category.displayName,
+                        description = tierDesc,
+                        tierLabel = tLabel,
+                        tierColor = tColor
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
+                // Auto-clear after 8s, or immediately if user navigates away
+                DisposableEffect(newlyUnlockedAchievements) {
+                    onDispose { onAchievementsSeen() }
+                }
+                LaunchedEffect(newlyUnlockedAchievements) {
+                    delay(8000)
+                    onAchievementsSeen()
+                }
             }
         }
 
@@ -826,13 +1030,13 @@ private fun ResultContent(
 @Composable
 fun WindIndicator(
     windSpeedLabel: String,
-    windCompass: String,
     windDegrees: Int,
     shotBearing: Double,
     windSpeedKmh: Double = 0.0,
     distanceYards: Int = 0,
     trajectoryMultiplier: Double = 1.0,
     showEffect: Boolean = false,
+    distanceUnit: DistanceUnit = DistanceUnit.YARDS,
     onDirectionTap: (() -> Unit)? = null,
     onSpeedUp: (() -> Unit)? = null,
     onSpeedDown: (() -> Unit)? = null
@@ -857,37 +1061,41 @@ fun WindIndicator(
                 if (hasControls && onSpeedDown != null) {
                     Box(
                         modifier = Modifier
-                            .size(40.dp)
-                            .clip(RoundedCornerShape(50))
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFE0E2DC))
                             .clickable { onSpeedDown() },
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Default.KeyboardArrowDown,
                             contentDescription = "Decrease wind speed",
-                            tint = TextTertiary,
-                            modifier = Modifier.size(24.dp)
+                            tint = TextSecondary,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                 }
+                Spacer(Modifier.width(4.dp))
                 Text(
                     text = windSpeedLabel,
                     style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary
                 )
+                Spacer(Modifier.width(4.dp))
                 if (hasControls && onSpeedUp != null) {
                     Box(
                         modifier = Modifier
-                            .size(40.dp)
-                            .clip(RoundedCornerShape(50))
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFE0E2DC))
                             .clickable { onSpeedUp() },
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Default.KeyboardArrowUp,
                             contentDescription = "Increase wind speed",
-                            tint = TextTertiary,
-                            modifier = Modifier.size(24.dp)
+                            tint = TextSecondary,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                 }
@@ -899,27 +1107,17 @@ fun WindIndicator(
                 color = TextTertiary
             )
             if (showEffect && windSpeedKmh > 0 && distanceYards > 0) {
-                val carryText = if (effect.carryEffectYards >= 0) {
-                    "+${effect.carryEffectYards} yds"
-                } else {
-                    "${effect.carryEffectYards} yds"
-                }
+                val useYards = distanceUnit == DistanceUnit.YARDS
+                val unitStr = if (useYards) "yds" else "m"
+                val carryVal = if (useYards) effect.carryEffectYards
+                    else (effect.carryEffectYards * 0.9144).roundToInt()
+                val carryText = if (carryVal >= 0) "+$carryVal $unitStr" else "$carryVal $unitStr"
                 Text(
                     text = carryText,
                     style = MaterialTheme.typography.labelSmall,
                     color = color,
                     fontWeight = FontWeight.SemiBold
                 )
-                val lateralYds = kotlin.math.abs(effect.lateralDisplacementYards)
-                if (lateralYds >= 0.5) {
-                    val dir = if (effect.lateralDisplacementYards > 0) "\u2192" else "\u2190"
-                    Text(
-                        text = "$dir ${lateralYds.toInt()} yds",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color(0xFFE65100),
-                        fontWeight = FontWeight.Medium
-                    )
-                }
             }
         }
 
@@ -931,18 +1129,20 @@ fun WindIndicator(
                 modifier = Modifier.size(32.dp)
             )
             if (onDirectionTap != null) {
+                Spacer(Modifier.height(4.dp))
                 Box(
                     modifier = Modifier
-                        .size(36.dp)
-                        .clip(RoundedCornerShape(50))
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFE0E2DC))
                         .clickable { onDirectionTap() },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.Refresh,
                         contentDescription = "Cycle wind direction",
-                        tint = TextTertiary,
-                        modifier = Modifier.size(20.dp)
+                        tint = TextSecondary,
+                        modifier = Modifier.size(18.dp)
                     )
                 }
             }

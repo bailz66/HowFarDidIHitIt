@@ -6,6 +6,7 @@ import com.smacktrack.golf.ui.ShotResult
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
@@ -219,7 +220,73 @@ class ChartComponentsTest {
             )
             val summary = computeSessionSummary(shots, DistanceUnit.METERS)
             assertNotNull(summary)
-            assertEquals(136, summary!!.avgDistance) // (182+137+91)/3 = 136
+            assertEquals(137, summary!!.avgDistance) // round((182+137+91)/3) = round(136.67) = 137
+        }
+    }
+
+    // ── currentActiveSession ────────────────────────────────────────────────
+
+    @Nested
+    @DisplayName("currentActiveSession")
+    inner class CurrentActiveSessionTests {
+
+        @Test
+        @DisplayName("empty list returns null")
+        fun emptyList() {
+            assertNull(currentActiveSession(emptyList<ShotResult>()))
+        }
+
+        @Test
+        @DisplayName("shot older than 30 minutes returns null")
+        fun oldShot() {
+            val oldTs = System.currentTimeMillis() - 31 * 60 * 1000L
+            assertNull(currentActiveSession(listOf(shot(oldTs))))
+        }
+
+        @Test
+        @DisplayName("recent shot returns a session")
+        fun recentShot() {
+            val recentTs = System.currentTimeMillis() - 5 * 60 * 1000L
+            val session = currentActiveSession(listOf(shot(recentTs)))
+            assertNotNull(session)
+            assertEquals(1, session!!.shots.size)
+        }
+
+        @Test
+        @DisplayName("returns only the last session when multiple exist")
+        fun multipleSessionsReturnsLast() {
+            val now = System.currentTimeMillis()
+            val oldTs = now - 60 * 60 * 1000L // 1 hour ago (separate session)
+            val recentTs = now - 5 * 60 * 1000L
+            val shots = listOf(shot(oldTs, 100), shot(recentTs, 200))
+            val session = currentActiveSession(shots)
+            assertNotNull(session)
+            assertEquals(1, session!!.shots.size)
+            assertEquals(200, session.shots[0].distanceYards)
+        }
+
+        @Test
+        @DisplayName("boundary: shot exactly 30 min ago returns null")
+        fun boundaryExact30Min() {
+            val ts = System.currentTimeMillis() - 30 * 60 * 1000L
+            // Gap > SESSION_GAP_MS because System.currentTimeMillis() advances
+            // Use 30min + 1ms to guarantee it's past the boundary
+            val ts2 = System.currentTimeMillis() - 30 * 60 * 1000L - 1
+            assertNull(currentActiveSession(listOf(shot(ts2))))
+        }
+
+        @Test
+        @DisplayName("multiple recent shots grouped into one session")
+        fun multipleRecentShots() {
+            val now = System.currentTimeMillis()
+            val shots = listOf(
+                shot(now - 10 * 60 * 1000L, 140),
+                shot(now - 5 * 60 * 1000L, 160),
+                shot(now - 1 * 60 * 1000L, 180)
+            )
+            val session = currentActiveSession(shots)
+            assertNotNull(session)
+            assertEquals(3, session!!.shots.size)
         }
     }
 }

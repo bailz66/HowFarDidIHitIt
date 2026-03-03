@@ -6,6 +6,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.Locale
 
 /**
  * Fetches current weather conditions from the Open-Meteo API.
@@ -29,7 +30,11 @@ object WeatherService {
      */
     suspend fun fetchWeather(lat: Double, lon: Double): WeatherData? =
         withContext(Dispatchers.IO) {
-            val url = "$BASE_URL?latitude=$lat&longitude=$lon" +
+            // Round to 2 decimal places (~1.1 km precision) for privacy
+            // Force Locale.US to ensure '.' decimal separator in all locales
+            val rlat = String.format(Locale.US, "%.2f", lat)
+            val rlon = String.format(Locale.US, "%.2f", lon)
+            val url = "$BASE_URL?latitude=$rlat&longitude=$rlon" +
                 "&current=temperature_2m,weather_code,wind_speed_10m,wind_direction_10m"
             val connection = URL(url).openConnection() as HttpURLConnection
             try {
@@ -40,7 +45,11 @@ object WeatherService {
                     Log.e("WeatherService", "HTTP $code from Open-Meteo")
                     return@withContext null
                 }
-                val json = connection.inputStream.bufferedReader().use { it.readText() }
+                val json = connection.inputStream.bufferedReader().use { reader ->
+                    val buffer = CharArray(65_536) // 64KB limit — typical response is <1KB
+                    val bytesRead = reader.read(buffer)
+                    if (bytesRead < 0) "" else String(buffer, 0, bytesRead)
+                }
                 parseWeatherJson(json)
             } catch (e: Exception) {
                 Log.e("WeatherService", "Failed to fetch weather", e)
@@ -60,10 +69,14 @@ object WeatherService {
         try {
             val root = JSONObject(json)
             root.optJSONObject("current")?.let { current ->
+                val temp = current.optDouble("temperature_2m", 0.0)
+                val wind = current.optDouble("wind_speed_10m", 0.0)
+                // Guard against NaN from malformed JSON values
+                if (temp.isNaN() || wind.isNaN()) return@let null
                 WeatherData(
-                    temperatureCelsius = current.optDouble("temperature_2m", 0.0),
+                    temperatureCelsius = temp,
                     weatherCode = current.optInt("weather_code", -1),
-                    windSpeedKmh = current.optDouble("wind_speed_10m", 0.0),
+                    windSpeedKmh = wind,
                     windDirectionDegrees = current.optInt("wind_direction_10m", 0)
                 )
             }

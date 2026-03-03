@@ -1,8 +1,10 @@
 package com.smacktrack.golf.ui
 
 import com.smacktrack.golf.domain.Club
+import kotlin.math.roundToInt
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
@@ -92,8 +94,8 @@ class ShotDisplayUtilsTest {
     @DisplayName("formatWindSpeed in mph mode")
     fun formatWindSpeedMph() {
         val s = shot(windSpeedKmh = 16.0)
-        // 16 * 0.621371 = 9.94 → 9 mph
-        assertEquals("9 mph", s.formatWindSpeed(WindUnit.MPH))
+        // 16 * 0.621371 = 9.94 → rounds to 10 mph
+        assertEquals("10 mph", s.formatWindSpeed(WindUnit.MPH))
     }
 
     // ── formatTemperature ───────────────────────────────────────────────────
@@ -204,5 +206,129 @@ class ShotDisplayUtilsTest {
     )
     fun windStrengthBoundaries(speedKmh: Double, expected: String) {
         assertEquals(expected, windStrengthLabel(speedKmh))
+    }
+
+    // ── distanceFor ───────────────────────────────────────────────────────────
+
+    private val defaultSettings = AppSettings()
+
+    @Test
+    @DisplayName("distanceFor returns raw yards when not weather-adjusted")
+    fun distanceForRawYards() {
+        val s = shot(distanceYards = 200, distanceMeters = 183)
+        assertEquals(200, distanceFor(s, useYards = true, weatherAdjusted = false, defaultSettings))
+    }
+
+    @Test
+    @DisplayName("distanceFor returns raw meters when not weather-adjusted")
+    fun distanceForRawMeters() {
+        val s = shot(distanceYards = 200, distanceMeters = 183)
+        assertEquals(183, distanceFor(s, useYards = false, weatherAdjusted = false, defaultSettings))
+    }
+
+    @Test
+    @DisplayName("distanceFor with zero wind returns raw distance")
+    fun distanceForZeroWind() {
+        val s = shot(distanceYards = 200, distanceMeters = 183, windSpeedKmh = 0.0, temperatureF = 70)
+        val adjusted = distanceFor(s, useYards = true, weatherAdjusted = true, defaultSettings)
+        assertEquals(200, adjusted)
+    }
+
+    @Test
+    @DisplayName("distanceFor weather-adjusted never returns negative")
+    fun distanceForNeverNegative() {
+        // Extreme headwind on a short shot
+        val s = shot(distanceYards = 10, distanceMeters = 9, windSpeedKmh = 80.0, temperatureF = 30)
+        val adjusted = distanceFor(s, useYards = true, weatherAdjusted = true, defaultSettings)
+        assertTrue(adjusted >= 0, "Adjusted distance should never be negative, was $adjusted")
+    }
+
+    @Test
+    @DisplayName("distanceFor weather-adjusted converts to meters correctly")
+    fun distanceForWeatherAdjustedMeters() {
+        val s = shot(distanceYards = 200, distanceMeters = 183, windSpeedKmh = 0.0, temperatureF = 70)
+        val adjustedMeters = distanceFor(s, useYards = false, weatherAdjusted = true, defaultSettings)
+        // With no wind and 70F, adjusted yards = 200, meters = round(200 * 0.9144) = 183
+        assertEquals((200 * 0.9144).roundToInt(), adjustedMeters)
+    }
+
+    @Test
+    @DisplayName("distanceFor with tailwind reduces adjusted distance")
+    fun distanceForTailwindReduces() {
+        // Shot going north, wind pushing from behind (south, 180 degrees)
+        val s = ShotResult(
+            club = Club.SEVEN_IRON,
+            distanceYards = 150,
+            distanceMeters = 137,
+            weatherDescription = "Clear sky",
+            temperatureF = 70,
+            temperatureC = 21,
+            windSpeedKmh = 30.0,
+            windDirectionCompass = "S",
+            windDirectionDegrees = 180,
+            shotBearingDegrees = 0.0,
+            timestampMs = 1700000000000L
+        )
+        val raw = distanceFor(s, useYards = true, weatherAdjusted = false, defaultSettings)
+        val adjusted = distanceFor(s, useYards = true, weatherAdjusted = true, defaultSettings)
+        // Tailwind helps: weather effect is positive, so adjusted = raw - positive = less
+        assertTrue(adjusted < raw, "Tailwind should reduce adjusted distance (adjusted=$adjusted, raw=$raw)")
+    }
+
+    // ── percentileAmongClub — METERS mode ────────────────────────────────────
+
+    @Test
+    @DisplayName("percentileAmongClub works in METERS mode")
+    fun percentileMetersMode() {
+        val current = shot(distanceYards = 200, distanceMeters = 183, timestampMs = 100)
+        // 5 prior shots with meters 91, 114, 137, 160, 183
+        val history = (1..5).map {
+            shot(distanceYards = 100 + it * 25, distanceMeters = 91 + it * 23, timestampMs = it.toLong())
+        }
+        val p = current.percentileAmongClub(history, DistanceUnit.METERS)!!
+        // current meters = 183, beats all 5 (91+23=114, 91+46=137, 91+69=160, 91+92=183, 91+115=206)
+        // Actually let me recalculate: meters = 91 + it * 23 for it=1..5 → 114, 137, 160, 183, 206
+        // current = 183, beats 114, 137, 160, 183 = 4 out of 5 = 80%
+        assertEquals(80f, p)
+    }
+
+    // ── percentileAmongClub — self-exclusion with duplicate timestamps ─────
+
+    @Test
+    @DisplayName("percentileAmongClub excludes self by timestamp")
+    fun percentileSelfExclusion() {
+        // Current shot is in history with same timestamp
+        val current = shot(distanceYards = 150, timestampMs = 100)
+        val history = (1..5).map {
+            shot(distanceYards = 100 + it * 10, timestampMs = it.toLong())
+        } + current // add self to history
+        val p = current.percentileAmongClub(history, DistanceUnit.YARDS)!!
+        // priorShots filters out timestampMs == 100, so 5 prior shots remain
+        // current = 150, beats 110, 120, 130, 140, 150 = 5 out of 5 = 100%
+        assertEquals(100f, p)
+    }
+
+    @Test
+    @DisplayName("distanceFor respects trajectory multiplier")
+    fun distanceForTrajectoryMultiplier() {
+        val s = ShotResult(
+            club = Club.SEVEN_IRON,
+            distanceYards = 150,
+            distanceMeters = 137,
+            weatherDescription = "Clear sky",
+            temperatureF = 70,
+            temperatureC = 21,
+            windSpeedKmh = 30.0,
+            windDirectionCompass = "N",
+            windDirectionDegrees = 0,
+            shotBearingDegrees = 0.0,
+            timestampMs = 1700000000000L
+        )
+        val lowSettings = defaultSettings.copy(trajectory = Trajectory.LOW)
+        val highSettings = defaultSettings.copy(trajectory = Trajectory.HIGH)
+        val adjLow = distanceFor(s, useYards = true, weatherAdjusted = true, lowSettings)
+        val adjHigh = distanceFor(s, useYards = true, weatherAdjusted = true, highSettings)
+        // Higher trajectory = more wind effect, so more difference from raw
+        assertTrue(adjLow != adjHigh, "Different trajectory multipliers should produce different results")
     }
 }

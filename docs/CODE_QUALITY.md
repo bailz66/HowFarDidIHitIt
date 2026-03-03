@@ -53,9 +53,9 @@ fun ShowShotResult(shot: Shot, onDismiss: () -> Unit) { ... }
 
 ### Layer Boundaries
 - **UI layer** (screens, composables) NEVER directly accesses network or GPS services
-- **ViewModel** manages all state and coordinates between services
-- **Services** (LocationProvider, WeatherService) are instantiated directly — no DI framework
-- **No repository pattern** — data is in-memory only, managed in the ViewModel
+- **ViewModel** manages all state and coordinates between services and repositories
+- **Repositories** (ShotRepository, AchievementRepository) handle persistence (SharedPreferences + Firestore)
+- **Services** (LocationProvider, WeatherService, ShotTrackingService) are instantiated directly — no DI framework
 
 ### State Management
 - UI state is an **immutable data class** exposed as `StateFlow<T>`
