@@ -102,4 +102,18 @@ class AuthManager(private val activity: Activity) {
         firebaseAuth.signOut()
         _currentUser.value = null // Synchronous clear — don't wait for auth listener
     }
+
+    suspend fun deleteAccount(): Result<Unit> {
+        val user = firebaseAuth.currentUser
+            ?: return Result.failure(Exception("No user signed in"))
+        return try {
+            credentialManager.clearCredentialState(ClearCredentialStateRequest())
+            user.delete().await()
+            _currentUser.value = null
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("AuthManager", "Account deletion failed", e)
+            Result.failure(e)
+        }
+    }
 }

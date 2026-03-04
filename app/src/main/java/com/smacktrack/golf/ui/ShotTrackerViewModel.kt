@@ -120,7 +120,8 @@ data class ShotTrackerUiState(
     val syncStatus: SyncStatus = SyncStatus.IDLE,
     val unlockedAchievements: Map<String, Long> = emptyMap(),
     val newlyUnlockedAchievements: List<UnlockedAchievement> = emptyList(),
-    val gpsAccuracyMeters: Double? = null
+    val gpsAccuracyMeters: Double? = null,
+    val accountDeleted: Boolean = false
 )
 
 class ShotTrackerViewModel(application: Application) : AndroidViewModel(application) {
@@ -790,6 +791,47 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
                 )
             }
         }
+    }
+
+    fun deleteAccount() {
+        val auth = authManager ?: return
+        val capturedUid = repository.snapshotUid() ?: return
+        // Snapshot data to local storage before deletion
+        val currentState = _uiState.value
+        repository.saveShots(currentState.shotHistory)
+        repository.saveSettings(currentState.settings)
+        achievementRepository.saveUnlocked(currentState.unlockedAchievements)
+        // Cancel Firestore listeners
+        shotsCollectionJob?.cancel()
+        settingsCollectionJob?.cancel()
+        achievementsCollectionJob?.cancel()
+        viewModelScope.launch {
+            try {
+                // Delete Firestore data first (needs auth token)
+                repository.deleteAllUserData(capturedUid)
+                // Then delete the Firebase Auth account
+                auth.deleteAccount()
+                // Reload local data
+                val localShots = repository.loadShots()
+                val localSettings = repository.loadSettings()
+                val localAchievements = achievementRepository.loadUnlocked()
+                _uiState.update {
+                    it.copy(
+                        shotHistory = localShots,
+                        settings = localSettings,
+                        unlockedAchievements = localAchievements,
+                        accountDeleted = true
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e("ViewModel", "Account deletion failed", e)
+                _uiState.update { it.copy(signInError = "Account deletion failed. Please try again.") }
+            }
+        }
+    }
+
+    fun clearAccountDeletedFlag() {
+        _uiState.update { it.copy(accountDeleted = false) }
     }
 
     // ── Persistence helpers ──────────────────────────────────────────────────

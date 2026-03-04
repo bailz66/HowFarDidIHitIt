@@ -364,8 +364,8 @@ fun BagSummaryChart(
 ) {
     if (clubs.size < 2) return
 
-    val sorted = clubs.sortedByDescending { it.avg }
-    val maxAvg = sorted.first().avg.toFloat().coerceAtLeast(1f)
+    val sorted = clubs.sortedBy { it.club.sortOrder }
+    val maxAvg = sorted.maxOf { it.avg }.toFloat().coerceAtLeast(1f)
 
     // Bar grow animation (keyed on data so it replays on change)
     var animateTarget by remember(clubs) { mutableStateOf(false) }

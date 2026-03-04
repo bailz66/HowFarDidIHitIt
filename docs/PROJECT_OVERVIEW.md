@@ -99,3 +99,4 @@ HowFarDidIHitIt/
 - [UI/UX Design](./UI_DESIGN.md)
 - [Branching Strategy](./BRANCHING_STRATEGY.md)
 - [Bug Hunt Methodology](./BUG_HUNT.md)
+- [Versioning Strategy](./VERSIONING.md)

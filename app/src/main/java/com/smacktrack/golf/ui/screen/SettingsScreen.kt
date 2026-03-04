@@ -86,6 +86,7 @@ fun SettingsScreen(
     onSignIn: () -> Unit = {},
     onSignOut: () -> Unit = {},
     onClearError: () -> Unit = {},
+    onDeleteAccount: () -> Unit = {},
     onDonate: () -> Unit = {},
     achievementCount: Int = 0,
     totalAchievements: Int = 60,
@@ -93,6 +94,31 @@ fun SettingsScreen(
     modifier: Modifier = Modifier
 ) {
     var showHowItWorks by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Delete Account?", fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "This will permanently delete your cloud data (shots, settings, achievements) " +
+                    "and your Google account link.\n\n" +
+                    "Your local data will be kept on this device.\n\n" +
+                    "This action cannot be undone."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteConfirm = false
+                    onDeleteAccount()
+                }) { Text("Delete Account", color = Color(0xFFE53935)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
+            }
+        )
+    }
 
     if (showHowItWorks) {
         AlertDialog(
@@ -341,6 +367,23 @@ fun SettingsScreen(
                         color = TextSecondary
                     )
                 }
+                Spacer(Modifier.height(10.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFFFDEDED))
+                        .clickable { showDeleteConfirm = true }
+                        .padding(vertical = 14.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "Delete Account",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFFE53935)
+                    )
+                }
             }
         } else {
             Box(
@@ -397,7 +440,7 @@ fun SettingsScreen(
             ) {
                 Icon(
                     imageVector = Icons.Default.FavoriteBorder,
-                    contentDescription = null,
+                    contentDescription = "Support SmackTrack",
                     tint = Color(0xFF6D4C41),
                     modifier = Modifier.size(24.dp)
                 )

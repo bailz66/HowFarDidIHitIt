@@ -171,6 +171,23 @@ class ShotRepository(context: Context) {
         saveSettingsToPrefs(settings)
     }
 
+    // ── Account deletion ────────────────────────────────────────────────────
+
+    suspend fun deleteAllUserData(forUid: String) {
+        val userDoc = firestore.collection("users").document(forUid)
+        // Delete shots subcollection
+        val shots = userDoc.collection("shots").get().await()
+        for (doc in shots.documents) { doc.reference.delete().await() }
+        // Delete settings subcollection
+        val settings = userDoc.collection("settings").get().await()
+        for (doc in settings.documents) { doc.reference.delete().await() }
+        // Delete achievements subcollection
+        val achievements = userDoc.collection("achievements").get().await()
+        for (doc in achievements.documents) { doc.reference.delete().await() }
+        // Delete user document itself
+        userDoc.delete().await()
+    }
+
     // ── Migration ────────────────────────────────────────────────────────────
 
     suspend fun migrateLocalToFirestore() {

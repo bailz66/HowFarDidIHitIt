@@ -193,6 +193,7 @@ Detailed project documentation is available in the `docs/` directory:
 - [Code Quality](docs/CODE_QUALITY.md)
 - [Branching Strategy](docs/BRANCHING_STRATEGY.md)
 - [Bug Hunt Methodology](docs/BUG_HUNT.md)
+- [Versioning Strategy](docs/VERSIONING.md)
 
 ## License
 
