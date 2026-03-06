@@ -49,6 +49,7 @@ import com.smacktrack.golf.ui.formatWindSpeed
 import com.smacktrack.golf.ui.shortUnitLabel
 import com.smacktrack.golf.ui.theme.ChipUnselectedBg
 import com.smacktrack.golf.ui.theme.DarkGreen
+import com.smacktrack.golf.ui.theme.MidGray
 import com.smacktrack.golf.ui.theme.RobotoFamily
 import com.smacktrack.golf.ui.theme.TextPrimary
 import com.smacktrack.golf.ui.theme.TextSecondary
@@ -177,7 +178,7 @@ fun SessionSummaryCard(summary: SessionSummary, unitLabel: String) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(8.dp))
             .background(ChipUnselectedBg)
             .padding(16.dp)
     ) {
@@ -257,7 +258,7 @@ fun DistanceSparkline(
     val maxVal = (data.max() + 10).toFloat()
     val range = (maxVal - minVal).coerceAtLeast(20f)
 
-    val gridColor = Color(0xFFE0E2DC)
+    val gridColor = MidGray
     val avgDashColor = Color(0xFF9E9E9E)
     val dotColor = lineColor
 
@@ -367,17 +368,27 @@ fun BagSummaryChart(
     val sorted = clubs.sortedBy { it.club.sortOrder }
     val maxAvg = sorted.maxOf { it.avg }.toFloat().coerceAtLeast(1f)
 
+    // Round up to a clean number for the axis
+    val axisMax = when {
+        maxAvg <= 50 -> 50
+        maxAvg <= 100 -> 100
+        maxAvg <= 150 -> 150
+        maxAvg <= 200 -> 200
+        maxAvg <= 250 -> 250
+        maxAvg <= 300 -> 300
+        else -> ((maxAvg / 50).toInt() + 1) * 50
+    }
     // Bar grow animation (keyed on data so it replays on change)
     var animateTarget by remember(clubs) { mutableStateOf(false) }
     LaunchedEffect(clubs) { animateTarget = true }
 
     Column(
         modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         sorted.forEachIndexed { index, club ->
             val animatedFraction by animateFloatAsState(
-                targetValue = if (animateTarget) club.avg / maxAvg else 0f,
+                targetValue = if (animateTarget) club.avg / axisMax.toFloat() else 0f,
                 animationSpec = tween(600, delayMillis = index * 80),
                 label = "barGrow$index"
             )
@@ -391,7 +402,7 @@ fun BagSummaryChart(
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
                         .background(club.chipColor)
-                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                        .padding(horizontal = 8.dp, vertical = 3.dp)
                         .width(48.dp),
                     contentAlignment = Alignment.Center
                 ) {
@@ -407,44 +418,35 @@ fun BagSummaryChart(
 
                 Spacer(Modifier.width(8.dp))
 
-                // Horizontal bar — animated grow
-                Box(modifier = Modifier.weight(1f)) {
+                // Horizontal bar with distance label to the right
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(18.dp)
+                ) {
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth(fraction = animatedFraction)
-                            .height(14.dp)
+                            .fillMaxWidth(fraction = animatedFraction.coerceIn(0.01f, 1f))
+                            .height(18.dp)
                             .clip(RoundedCornerShape(4.dp))
-                            .background(club.chipColor.copy(alpha = 0.3f))
+                            .background(club.chipColor.copy(alpha = 0.25f))
                     )
                 }
 
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(6.dp))
 
-                // Distance label
+                // Distance value — fixed width so bars align
                 Text(
-                    text = "${club.avg}",
+                    text = "${club.avg} $unitLabel",
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary,
-                    modifier = Modifier.width(32.dp)
+                    fontSize = 10.sp,
+                    modifier = Modifier.width(48.dp)
                 )
             }
-
-            // Gap warning
-            if (index < sorted.size - 1) {
-                val gap = sorted[index].avg - sorted[index + 1].avg
-                if (gap > 15) {
-                    Text(
-                        text = "${gap} $unitLabel gap",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color(0xFFE65100),
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 9.sp,
-                        modifier = Modifier.padding(start = 64.dp)
-                    )
-                }
-            }
         }
+
     }
 }
 
@@ -625,7 +627,7 @@ val DistanceResult = TextStyle(
 fun ClubBadge(club: Club) {
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(4.dp))
             .background(clubChipColor(club.sortOrder))
             .padding(horizontal = 24.dp, vertical = 8.dp)
     ) {
@@ -653,7 +655,7 @@ fun WeatherWindStrip(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(8.dp))
             .background(ChipUnselectedBg)
             .padding(16.dp)
     ) {
@@ -746,7 +748,7 @@ fun ShareShotButton(shot: ShotResult, settings: AppSettings, shotHistory: List<S
     val context = LocalContext.current
     Row(
         modifier = Modifier
-            .clip(RoundedCornerShape(50))
+            .clip(RoundedCornerShape(8.dp))
             .clickable {
                 var bitmap: android.graphics.Bitmap? = null
                 try {
@@ -805,9 +807,9 @@ fun AchievementUnlockBanner(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(16.dp))
+                .clip(RoundedCornerShape(12.dp))
                 .background(tierColor.copy(alpha = 0.10f))
-                .border(1.dp, tierColor.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+                .border(1.dp, tierColor.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
                 .padding(vertical = 16.dp, horizontal = 20.dp)
         ) {
             Row(
@@ -820,7 +822,7 @@ fun AchievementUnlockBanner(
                 )
                 Column {
                     Text(
-                        text = "$tierLabel UNLOCKED",
+                        text = "${tierLabel.uppercase()} UNLOCKED",
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                         color = tierColor,

@@ -82,6 +82,9 @@ import com.smacktrack.golf.ui.primaryDistance
 import com.smacktrack.golf.ui.shortUnitLabel
 import com.smacktrack.golf.ui.theme.ChipUnselectedBg
 import com.smacktrack.golf.ui.theme.DarkGreen
+import com.smacktrack.golf.ui.theme.DarkGreenLight
+import com.smacktrack.golf.ui.theme.MidGray
+import com.smacktrack.golf.ui.theme.Red40
 import com.smacktrack.golf.ui.theme.TextPrimary
 import com.smacktrack.golf.ui.theme.TextSecondary
 import com.smacktrack.golf.ui.theme.TextTertiary
@@ -90,8 +93,6 @@ import com.smacktrack.golf.ui.theme.windCategoryColor
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-
-private val cardBorderColor = Color(0xFFE0E2DC)
 
 private enum class StatsView { CLUBS, DISTANCES }
 
@@ -175,8 +176,8 @@ fun AnalyticsScreen(
                 StatsView.entries.forEach { mode ->
                     val selected = mode == viewMode
                     val label = when (mode) {
-                        StatsView.CLUBS -> "Clubs"
-                        StatsView.DISTANCES -> "Distances"
+                        StatsView.CLUBS -> "By Club"
+                        StatsView.DISTANCES -> "Ranges"
                     }
                     Box(
                         modifier = Modifier
@@ -302,9 +303,9 @@ private fun CategorySectionHeader(label: String) {
 private fun HighlightChip(label: String, value: String) {
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(6.dp))
             .background(Color.White)
-            .border(1.dp, cardBorderColor, RoundedCornerShape(12.dp))
+            .border(1.dp, MidGray, RoundedCornerShape(6.dp))
             .padding(horizontal = 14.dp, vertical = 10.dp)
     ) {
         Column {
@@ -353,8 +354,8 @@ private fun StatsListView(
                     club = club,
                     shotCount = clubShots.size,
                     avg = distances.average().roundToInt(),
-                    long = distances.max(),
-                    short = distances.min(),
+                    long = distances.maxOrNull() ?: 0,
+                    short = distances.minOrNull() ?: 0,
                     recentDistances = distances.takeLast(5),
                     trendDirection = computeTrend(distances),
                     spread = stdDev(distances)
@@ -392,7 +393,7 @@ private fun StatsListView(
                     val selected = period == selectedPeriod
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
+                            .clip(RoundedCornerShape(4.dp))
                             .background(if (selected) DarkGreen else ChipUnselectedBg)
                             .clickable { onPeriodChanged(period) }
                             .padding(horizontal = 14.dp, vertical = 8.dp)
@@ -468,7 +469,7 @@ private fun StatsListView(
                     )
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        text = "Weather adj.",
+                        text = "Weather adj",
                         style = MaterialTheme.typography.labelSmall,
                         color = if (weatherAdjusted) DarkGreen else TextSecondary,
                         fontWeight = if (weatherAdjusted) FontWeight.SemiBold else FontWeight.Normal
@@ -483,9 +484,9 @@ private fun StatsListView(
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, cardBorderColor, RoundedCornerShape(16.dp)),
-                    shape = RoundedCornerShape(16.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                        .border(1.dp, MidGray, RoundedCornerShape(8.dp)),
+                    shape = RoundedCornerShape(8.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                     colors = CardDefaults.cardColors(containerColor = Color.White)
                 ) {
                     Column(modifier = Modifier.padding(14.dp)) {
@@ -496,7 +497,7 @@ private fun StatsListView(
                             color = TextTertiary,
                             letterSpacing = 1.5.sp
                         )
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(10.dp))
                         BagSummaryChart(clubs = bagClubs, unitLabel = unitLabel)
                     }
                 }
@@ -526,7 +527,7 @@ private fun StatsListView(
             }
         }
 
-        // Club rows grouped by category
+        // Club rows grouped by category — tap any club for detailed stats
         categoryOrder.forEach { category ->
             val categoryStats = statsByCategory[category] ?: return@forEach
             if (categoryStats.isNotEmpty()) {
@@ -558,16 +559,17 @@ private fun CompactClubRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(8.dp))
             .background(Color.White)
+            .border(1.dp, MidGray, RoundedCornerShape(8.dp))
             .clickable { onClick() }
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         // Club name chip
         Box(
             modifier = Modifier
-                .clip(RoundedCornerShape(10.dp))
+                .clip(RoundedCornerShape(4.dp))
                 .background(chipColor)
                 .padding(horizontal = 10.dp, vertical = 4.dp)
                 .width(52.dp),
@@ -584,6 +586,7 @@ private fun CompactClubRow(
 
         Spacer(Modifier.width(10.dp))
 
+        // Shot count
         Text(
             text = "${stat.shotCount} ${if (stat.shotCount == 1) "shot" else "shots"}",
             style = MaterialTheme.typography.labelSmall,
@@ -600,18 +603,12 @@ private fun CompactClubRow(
 
         Spacer(Modifier.width(10.dp))
 
-        // AVG distance
+        // AVG distance — single line
         Text(
-            text = "${stat.avg}",
+            text = "${stat.avg} $unitLabel",
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
             color = TextPrimary
-        )
-        Spacer(Modifier.width(3.dp))
-        Text(
-            text = unitLabel,
-            style = MaterialTheme.typography.labelSmall,
-            color = TextTertiary
         )
     }
 }
@@ -641,7 +638,7 @@ private fun ClubDetailView(
                 TextButton(onClick = {
                     onDeleteShot(ts)
                     pendingDeleteTimestamp = null
-                }) { Text("Delete", color = Color(0xFFE53935)) }
+                }) { Text("Delete", color = Red40) }
             },
             dismissButton = {
                 TextButton(onClick = { pendingDeleteTimestamp = null }) { Text("Cancel") }
@@ -667,8 +664,8 @@ private fun ClubDetailView(
         TrendDirection.FLAT -> "Stable"
     }
     val trendColor = when (trend) {
-        TrendDirection.UP -> Color(0xFF2E7D32)
-        TrendDirection.DOWN -> Color(0xFFC62828)
+        TrendDirection.UP -> DarkGreenLight
+        TrendDirection.DOWN -> Red40
         TrendDirection.FLAT -> TextTertiary
     }
 
@@ -697,7 +694,7 @@ private fun ClubDetailView(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
+                    .clip(RoundedCornerShape(8.dp))
                     .background(
                         Brush.verticalGradient(
                             colors = listOf(
@@ -722,7 +719,7 @@ private fun ClubDetailView(
                     Spacer(Modifier.width(8.dp))
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(14.dp))
+                            .clip(RoundedCornerShape(8.dp))
                             .background(chipColor)
                             .padding(horizontal = 16.dp, vertical = 6.dp)
                     ) {
@@ -761,7 +758,7 @@ private fun ClubDetailView(
                         )
                         Spacer(Modifier.width(4.dp))
                         Text(
-                            text = "Weather adj.",
+                            text = "Weather adj",
                             style = MaterialTheme.typography.labelSmall,
                             color = if (weatherAdjusted) DarkGreen else TextSecondary,
                             fontWeight = if (weatherAdjusted) FontWeight.SemiBold else FontWeight.Normal
@@ -773,24 +770,50 @@ private fun ClubDetailView(
 
         // Summary stats
         item {
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(14.dp))
+                    .clip(RoundedCornerShape(8.dp))
                     .background(ChipUnselectedBg)
-                    .padding(16.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly
+                    .padding(16.dp)
             ) {
-                DetailStat("AVG", avg, unitLabel)
-                DetailStat("LONG", long, unitLabel)
-                DetailStat("SHORT", short, unitLabel)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    DetailStat("AVG", avg, unitLabel)
+                    DetailStat("LONG", long, unitLabel)
+                    DetailStat("SHORT", short, unitLabel)
+                }
+                if (distances.size >= 3) {
+                    val spread = stdDev(distances)
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "\u00B1$spread $unitLabel spread",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextTertiary
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Text(
+                            text = trendLabel,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = trendColor
+                        )
+                    }
+                }
             }
         }
 
         // Personal Best card — shown when 3+ shots exist
         if (distances.size >= 3) {
             item {
-                val pbIndex = distances.indexOf(long)
+                val pbIndex = distances.indexOfLast { it == long }
                 val pbShot = sortedShots.getOrNull(pbIndex)
                 val pbDate = pbShot?.let {
                     SimpleDateFormat("MMM d, yyyy", Locale.getDefault()).format(Date(it.timestampMs))
@@ -799,9 +822,9 @@ private fun ClubDetailView(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
+                        .clip(RoundedCornerShape(8.dp))
                         .background(Color.White)
-                        .border(1.dp, cardBorderColor, RoundedCornerShape(14.dp))
+                        .border(1.dp, MidGray, RoundedCornerShape(8.dp))
                 ) {
                     Row(modifier = Modifier.fillMaxWidth()) {
                         // Gold left border accent
@@ -841,9 +864,9 @@ private fun ClubDetailView(
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, cardBorderColor, RoundedCornerShape(14.dp)),
-                    shape = RoundedCornerShape(14.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                        .border(1.dp, MidGray, RoundedCornerShape(8.dp)),
+                    shape = RoundedCornerShape(8.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                     colors = CardDefaults.cardColors(containerColor = Color.White)
                 ) {
                     Column(modifier = Modifier.padding(14.dp)) {
@@ -870,9 +893,9 @@ private fun ClubDetailView(
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, cardBorderColor, RoundedCornerShape(14.dp)),
-                    shape = RoundedCornerShape(14.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                        .border(1.dp, MidGray, RoundedCornerShape(8.dp)),
+                    shape = RoundedCornerShape(8.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                     colors = CardDefaults.cardColors(containerColor = Color.White)
                 ) {
                     Column(modifier = Modifier.padding(14.dp)) {
@@ -989,8 +1012,9 @@ private fun ShotDetailRow(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(8.dp))
             .background(Color.White)
+            .border(1.dp, MidGray, RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
             .padding(12.dp)
     ) {

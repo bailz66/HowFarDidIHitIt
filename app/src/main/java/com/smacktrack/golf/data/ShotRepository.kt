@@ -148,7 +148,7 @@ class ShotRepository(context: Context) {
                     if (snapshot != null && snapshot.exists()) {
                         trySend(snapshot.toAppSettings())
                     } else {
-                        trySend(AppSettings())
+                        trySend(loadSettingsFromPrefs())
                     }
                 }
             awaitClose { registration.remove() }
@@ -299,8 +299,8 @@ class ShotRepository(context: Context) {
             distanceYards = getLong("distanceYards")?.toInt() ?: 0,
             distanceMeters = getLong("distanceMeters")?.toInt() ?: 0,
             weatherDescription = getString("weatherDescription") ?: "",
-            temperatureF = getLong("temperatureF")?.toInt() ?: 0,
-            temperatureC = getLong("temperatureC")?.toInt() ?: 0,
+            temperatureF = getLong("temperatureF")?.toInt() ?: 70,
+            temperatureC = getLong("temperatureC")?.toInt() ?: 21,
             windSpeedKmh = getDouble("windSpeedKmh") ?: 0.0,
             windDirectionCompass = getString("windDirectionCompass") ?: "",
             windDirectionDegrees = getLong("windDirectionDegrees")?.toInt() ?: 0,

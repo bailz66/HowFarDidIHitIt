@@ -462,9 +462,11 @@ fun SmackTrackApp(viewModel: ShotTrackerViewModel) {
                 targetState = selectedTab,
                 transitionSpec = {
                     val slideDir = if (targetState > initialState) 1 else -1
-                    (fadeIn(tween(250)) + slideInHorizontally(tween(300)) { it / 6 * slideDir })
+                    (fadeIn(tween(300, delayMillis = 50)) +
+                        slideInHorizontally(tween(350)) { it / 8 * slideDir })
                         .togetherWith(
-                            fadeOut(tween(250)) + slideOutHorizontally(tween(300)) { -it / 6 * slideDir }
+                            fadeOut(tween(200)) +
+                            slideOutHorizontally(tween(300)) { -it / 8 * slideDir }
                         ) using SizeTransform(clip = false)
                 },
                 modifier = Modifier
@@ -518,7 +520,10 @@ fun SmackTrackApp(viewModel: ShotTrackerViewModel) {
 
     // Achievement gallery dialog
     if (showAchievements) {
-        Dialog(onDismissRequest = { showAchievements = false }) {
+        Dialog(onDismissRequest = {
+            showAchievements = false
+            viewModel.clearNewAchievements()
+        }) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -527,10 +532,14 @@ fun SmackTrackApp(viewModel: ShotTrackerViewModel) {
                     .background(Color.White)
             ) {
                 AchievementGallery(
-                    unlockedAchievements = uiState.unlockedAchievements
+                    unlockedAchievements = uiState.unlockedAchievements,
+                    newlyUnlocked = uiState.newlyUnlockedAchievements
                 )
                 IconButton(
-                    onClick = { showAchievements = false },
+                    onClick = {
+                        showAchievements = false
+                        viewModel.clearNewAchievements()
+                    },
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(8.dp)
@@ -772,7 +781,7 @@ private fun SplashOverlay(onFinished: () -> Unit) {
         var impacted = false
         var embersSpawned = false
 
-        while (ms < 2700) {
+        while (ms < 2800) {
             ms += dt
             frame++
 
@@ -943,11 +952,11 @@ private fun SplashOverlay(onFinished: () -> Unit) {
                 shimmerProgress = ((ms - 1600) / 400f).coerceIn(0f, 1f)
             }
 
-            // ── Phase 7: Exit — zoom + fade (2300→2700ms) ──
-            if (ms in 2300..2700) {
-                val et = ((ms - 2300) / 400f).coerceIn(0f, 1f)
-                overlayAlpha = 1f - easeIn(et)
-                overlayScale = 1f + 0.04f * easeIn(et)
+            // ── Phase 7: Exit — smooth fade out (2300→2800ms) ──
+            if (ms in 2300..2800) {
+                val et = ((ms - 2300) / 500f).coerceIn(0f, 1f)
+                overlayAlpha = 1f - easeOut(et)
+                overlayScale = 1f + 0.03f * easeOut(et)
                 if (ms == 2300L) trail.clear()
             }
 

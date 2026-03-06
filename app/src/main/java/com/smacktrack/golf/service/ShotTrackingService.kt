@@ -16,12 +16,15 @@ class ShotTrackingService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    override fun onCreate() {
+        super.onCreate()
         val channel = NotificationChannel(
             CHANNEL_ID, "Shot Tracking", NotificationManager.IMPORTANCE_LOW
         )
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+    }
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val tapIntent = Intent(this, MainActivity::class.java).apply {
             this.flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
@@ -39,6 +42,11 @@ class ShotTrackingService : Service() {
 
         startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
         return START_NOT_STICKY
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        stopForeground(STOP_FOREGROUND_REMOVE)
     }
 
     companion object {

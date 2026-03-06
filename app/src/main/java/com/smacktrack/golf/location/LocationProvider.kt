@@ -53,7 +53,7 @@ class LocationProvider(context: Context) {
                         LocationUpdate(
                             lat = location.latitude,
                             lon = location.longitude,
-                            accuracyMeters = location.accuracy,
+                            accuracyMeters = location.accuracy.coerceIn(0.1f, 100f),
                             timestampMs = location.time
                         )
                     )

@@ -9,12 +9,19 @@ package com.smacktrack.golf.ui.screen
  * Most recent sessions appear at the top.
  */
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.EaseOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -27,12 +34,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -46,9 +50,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.smacktrack.golf.ui.AppSettings
 import com.smacktrack.golf.ui.DistanceUnit
 import com.smacktrack.golf.ui.ShotResult
@@ -56,9 +62,15 @@ import com.smacktrack.golf.ui.formatTemperature
 import com.smacktrack.golf.ui.formatWindSpeed
 import com.smacktrack.golf.ui.primaryDistance
 import com.smacktrack.golf.ui.shortUnitLabel
+import com.smacktrack.golf.ui.theme.ChipUnselectedBg
 import com.smacktrack.golf.ui.theme.DarkGreen
-import com.smacktrack.golf.ui.theme.LightGreenTint
+import com.smacktrack.golf.ui.theme.MidGray
+import com.smacktrack.golf.ui.theme.Red40
+import com.smacktrack.golf.ui.theme.TextPrimary
+import com.smacktrack.golf.ui.theme.TextSecondary
 import com.smacktrack.golf.ui.theme.TextTertiary
+import com.smacktrack.golf.ui.theme.clubChipColor
+import java.util.Calendar
 
 @Composable
 fun HistoryScreen(
@@ -79,7 +91,7 @@ fun HistoryScreen(
                 TextButton(onClick = {
                     onDeleteShot(ts)
                     pendingDeleteTimestamp = null
-                }) { Text("Delete", color = Color(0xFFE53935)) }
+                }) { Text("Delete", color = Red40) }
             },
             dismissButton = {
                 TextButton(onClick = { pendingDeleteTimestamp = null }) { Text("Cancel") }
@@ -131,29 +143,51 @@ fun HistoryScreen(
     val hasMore = visibleSessionCount < sessionCount
     val remaining = sessionCount - visibleSessionCount
 
+    // Entrance animation
+    val entranceProgress = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        entranceProgress.animateTo(1f, tween(500, easing = EaseOut))
+    }
+
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 24.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+            .padding(horizontal = 24.dp, vertical = 8.dp)
+            .graphicsLayer {
+                val p = entranceProgress.value
+                alpha = p
+                translationY = (1f - p) * 40f
+            },
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         item {
-            val summaryText = if (hasMore) {
-                "${shotHistory.size} shots in $sessionCount $sessionLabel (showing $visibleSessionCount of $sessionCount)"
-            } else {
-                "${shotHistory.size} shots in $sessionCount $sessionLabel"
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "${shotHistory.size} shots",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+                Text(
+                    text = "$sessionCount $sessionLabel" + if (hasMore) " (showing $visibleSessionCount)" else "",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextTertiary
+                )
             }
-            Text(
-                text = summaryText,
-                style = MaterialTheme.typography.bodyMedium,
-                color = TextTertiary,
-                modifier = Modifier.padding(bottom = 8.dp)
-            )
         }
 
-        visibleSessions.forEach { session ->
+        visibleSessions.forEachIndexed { index, session ->
+            if (index > 0) {
+                item { Spacer(Modifier.height(4.dp)) }
+            }
             item {
-                SessionHeader(session)
+                HistorySessionHeader(session)
             }
 
             // Inline session summary for sessions with 3+ shots
@@ -166,10 +200,17 @@ fun HistoryScreen(
             }
 
             val shotsReversed = session.shots.reversed()
+            val sessionBestTs = if (session.shots.size >= 3) {
+                val bestShot = session.shots.maxByOrNull {
+                    if (settings.distanceUnit == DistanceUnit.YARDS) it.distanceYards else it.distanceMeters
+                }
+                bestShot?.timestampMs
+            } else null
             items(shotsReversed, key = { it.timestampMs }) { shot ->
                 ShotHistoryCard(
                     shot = shot,
                     settings = settings,
+                    isSessionBest = shot.timestampMs == sessionBestTs,
                     onDelete = { pendingDeleteTimestamp = shot.timestampMs },
                     onClick = { onShotClicked(shot) }
                 )
@@ -189,79 +230,193 @@ fun HistoryScreen(
 }
 
 @Composable
-private fun ShotHistoryCard(shot: ShotResult, settings: AppSettings, onDelete: (() -> Unit)? = null, onClick: () -> Unit = {}) {
+private fun ShotHistoryCard(
+    shot: ShotResult,
+    settings: AppSettings,
+    isSessionBest: Boolean = false,
+    onDelete: (() -> Unit)? = null,
+    onClick: () -> Unit = {}
+) {
     val distance = shot.primaryDistance(settings.distanceUnit)
     val distLabel = shot.shortUnitLabel(settings.distanceUnit)
+    val chipColor = clubChipColor(shot.club.sortOrder)
 
-    Card(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color.White)
+            .border(1.dp, MidGray, RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+                .height(IntrinsicSize.Min)
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Surface(
-                    shape = RoundedCornerShape(50),
-                    color = LightGreenTint
-                ) {
-                    Text(
-                        text = shot.club.displayName,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = DarkGreen,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 3.dp)
-                    )
+            // Club color accent bar — stretches to card height
+            Box(
+                modifier = Modifier
+                    .width(4.dp)
+                    .fillMaxHeight()
+                    .background(chipColor)
+            )
+
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        // Club chip
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(chipColor)
+                                .padding(horizontal = 10.dp, vertical = 3.dp)
+                        ) {
+                            Text(
+                                text = shot.club.displayName,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                        if (isSessionBest) {
+                            Spacer(Modifier.width(6.dp))
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(Color(0xFFFFF8E1))
+                                    .border(1.dp, Color(0xFFFFD600), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 5.dp, vertical = 1.dp)
+                            ) {
+                                Text(
+                                    text = "BEST",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color(0xFFE6A800),
+                                    fontSize = 8.sp
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "${shot.formatTemperature(settings.temperatureUnit)} ${shot.weatherDescription} \u2022 ${shot.formatWindSpeed(settings.windUnit)} ${shot.windDirectionCompass}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextTertiary,
+                            maxLines = 1,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        CompactWindArrow(
+                            windDegrees = shot.windDirectionDegrees,
+                            shotBearing = shot.shotBearingDegrees
+                        )
+                    }
                 }
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    text = "${shot.formatTemperature(settings.temperatureUnit)} ${shot.weatherDescription}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextTertiary
-                )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = "Wind: ${shot.formatWindSpeed(settings.windUnit)} ${shot.windDirectionCompass}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextTertiary
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    CompactWindArrow(
-                        windDegrees = shot.windDirectionDegrees,
-                        shotBearing = shot.shotBearingDegrees
-                    )
-                }
-            }
-            Column(horizontalAlignment = Alignment.End) {
+                Spacer(Modifier.width(8.dp))
+                // Distance
                 Text(
                     text = "$distance",
-                    style = MaterialTheme.typography.headlineMedium,
+                    style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = TextPrimary
                 )
+                Spacer(Modifier.width(2.dp))
                 Text(
                     text = distLabel,
                     style = MaterialTheme.typography.bodySmall,
-                    color = TextTertiary
+                    color = TextTertiary,
+                    modifier = Modifier.padding(top = 6.dp)
                 )
-            }
-            if (onDelete != null) {
-                IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
-                    Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = "Delete shot",
-                        tint = TextTertiary,
-                        modifier = Modifier.size(20.dp)
-                    )
+                if (onDelete != null) {
+                    IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Delete shot",
+                            tint = TextTertiary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
             }
+        }
+    }
+}
+
+// ── History-specific session header with relative time ──────────────────────
+
+private fun relativeTimeLabel(timestampMs: Long): String {
+    val todayCal = Calendar.getInstance()
+    val shotCal = Calendar.getInstance().apply { timeInMillis = timestampMs }
+
+    // Strip time, compare dates only
+    fun Calendar.daysSinceEpoch(): Long {
+        val c = clone() as Calendar
+        c.set(Calendar.HOUR_OF_DAY, 0)
+        c.set(Calendar.MINUTE, 0)
+        c.set(Calendar.SECOND, 0)
+        c.set(Calendar.MILLISECOND, 0)
+        return c.timeInMillis / (24 * 60 * 60 * 1000L)
+    }
+
+    val dayDiff = todayCal.daysSinceEpoch() - shotCal.daysSinceEpoch()
+
+    return when {
+        dayDiff == 0L -> "Today"
+        dayDiff == 1L -> "Yesterday"
+        dayDiff < 7 -> "${dayDiff}d ago"
+        dayDiff < 30 -> "${dayDiff / 7}w ago"
+        else -> ""
+    }
+}
+
+@Composable
+private fun HistorySessionHeader(session: Session) {
+    val relTime = remember(session) {
+        if (session.shots.isNotEmpty()) relativeTimeLabel(session.shots.first().timestampMs) else ""
+    }
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(6.dp))
+            .background(ChipUnselectedBg)
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(6.dp)
+                .clip(androidx.compose.foundation.shape.CircleShape)
+                .background(DarkGreen)
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = session.dateLabel,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = TextPrimary
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = "${session.shots.size} ${if (session.shots.size == 1) "shot" else "shots"}",
+            style = MaterialTheme.typography.labelSmall,
+            color = TextTertiary
+        )
+        if (relTime.isNotEmpty()) {
+            Spacer(Modifier.weight(1f))
+            Text(
+                text = relTime,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = DarkGreen
+            )
         }
     }
 }

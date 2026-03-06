@@ -46,9 +46,16 @@ object WeatherService {
                     return@withContext null
                 }
                 val json = connection.inputStream.bufferedReader().use { reader ->
-                    val buffer = CharArray(65_536) // 64KB limit — typical response is <1KB
-                    val bytesRead = reader.read(buffer)
-                    if (bytesRead < 0) "" else String(buffer, 0, bytesRead)
+                    val sb = StringBuilder()
+                    val buffer = CharArray(8_192)
+                    var bytesRead: Int
+                    var totalRead = 0
+                    while (reader.read(buffer).also { bytesRead = it } > 0) {
+                        totalRead += bytesRead
+                        if (totalRead > 65_536) break // 64KB safety limit
+                        sb.append(buffer, 0, bytesRead)
+                    }
+                    sb.toString()
                 }
                 parseWeatherJson(json)
             } catch (e: Exception) {

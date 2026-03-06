@@ -44,6 +44,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -58,6 +61,8 @@ import com.smacktrack.golf.ui.Trajectory
 import com.smacktrack.golf.ui.WindUnit
 import com.smacktrack.golf.ui.theme.ChipBorder
 import com.smacktrack.golf.ui.theme.ChipUnselectedBg
+import com.smacktrack.golf.ui.theme.MidGray
+import com.smacktrack.golf.ui.theme.Red40
 import com.smacktrack.golf.ui.theme.DarkGreen
 import com.smacktrack.golf.ui.theme.TextSecondary
 import com.smacktrack.golf.ui.theme.TextTertiary
@@ -112,7 +117,7 @@ fun SettingsScreen(
                 TextButton(onClick = {
                     showDeleteConfirm = false
                     onDeleteAccount()
-                }) { Text("Delete Account", color = Color(0xFFE53935)) }
+                }) { Text("Delete Account", color = Red40) }
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
@@ -165,7 +170,7 @@ fun SettingsScreen(
         )
 
         Spacer(Modifier.height(28.dp))
-        HorizontalDivider(color = Color(0xFFE0E2DC))
+        HorizontalDivider(color = MidGray)
         Spacer(Modifier.height(28.dp))
 
         // ── Wind Unit ────────────────────────────────────────
@@ -178,7 +183,7 @@ fun SettingsScreen(
         )
 
         Spacer(Modifier.height(28.dp))
-        HorizontalDivider(color = Color(0xFFE0E2DC))
+        HorizontalDivider(color = MidGray)
         Spacer(Modifier.height(28.dp))
 
         // ── Temperature Unit ────────────────────────────────────
@@ -191,7 +196,7 @@ fun SettingsScreen(
         )
 
         Spacer(Modifier.height(28.dp))
-        HorizontalDivider(color = Color(0xFFE0E2DC))
+        HorizontalDivider(color = MidGray)
         Spacer(Modifier.height(28.dp))
 
         // ── Ball Flight ────────────────────────────────────────
@@ -210,7 +215,7 @@ fun SettingsScreen(
         )
 
         Spacer(Modifier.height(28.dp))
-        HorizontalDivider(color = Color(0xFFE0E2DC))
+        HorizontalDivider(color = MidGray)
         Spacer(Modifier.height(28.dp))
 
         // ── Clubs ────────────────────────────────────────────
@@ -254,14 +259,14 @@ fun SettingsScreen(
         }
 
         Spacer(Modifier.height(28.dp))
-        HorizontalDivider(color = Color(0xFFE0E2DC))
+        HorizontalDivider(color = MidGray)
         Spacer(Modifier.height(28.dp))
 
         // ── How It Works ────────────────────────────────────
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(16.dp))
+                .clip(RoundedCornerShape(12.dp))
                 .background(ChipUnselectedBg)
                 .clickable { showHowItWorks = true }
                 .padding(vertical = 16.dp),
@@ -276,7 +281,7 @@ fun SettingsScreen(
         }
 
         Spacer(Modifier.height(28.dp))
-        HorizontalDivider(color = Color(0xFFE0E2DC))
+        HorizontalDivider(color = MidGray)
         Spacer(Modifier.height(28.dp))
 
         // ── Achievements ─────────────────────────────────
@@ -285,7 +290,7 @@ fun SettingsScreen(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(16.dp))
+                .clip(RoundedCornerShape(12.dp))
                 .background(ChipUnselectedBg)
                 .clickable { onOpenAchievements() }
                 .padding(vertical = 16.dp, horizontal = 20.dp)
@@ -311,7 +316,7 @@ fun SettingsScreen(
         }
 
         Spacer(Modifier.height(28.dp))
-        HorizontalDivider(color = Color(0xFFE0E2DC))
+        HorizontalDivider(color = MidGray)
         Spacer(Modifier.height(28.dp))
 
         // ── Account / Cloud Sync ─────────────────────────
@@ -328,7 +333,7 @@ fun SettingsScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
+                    .clip(RoundedCornerShape(12.dp))
                     .background(ChipUnselectedBg)
                     .padding(20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
@@ -381,7 +386,7 @@ fun SettingsScreen(
                         text = "Delete Account",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
-                        color = Color(0xFFE53935)
+                        color = Red40
                     )
                 }
             }
@@ -389,7 +394,7 @@ fun SettingsScreen(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
+                    .clip(RoundedCornerShape(12.dp))
                     .background(Color(0xFF4285F4))
                     .clickable { onSignIn() }
                     .padding(vertical = 16.dp),
@@ -420,16 +425,16 @@ fun SettingsScreen(
         }
 
         Spacer(Modifier.height(28.dp))
-        HorizontalDivider(color = Color(0xFFE0E2DC))
+        HorizontalDivider(color = MidGray)
         Spacer(Modifier.height(28.dp))
 
         // ── Buy Me a Coffee ─────────────────────────────────
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(16.dp))
+                .clip(RoundedCornerShape(12.dp))
                 .background(Color(0xFFFFF8E1))
-                .border(1.dp, Color(0xFFFFE082), RoundedCornerShape(16.dp))
+                .border(1.dp, Color(0xFFFFE082), RoundedCornerShape(12.dp))
                 .clickable { onDonate() }
                 .padding(vertical = 20.dp, horizontal = 24.dp),
             contentAlignment = Alignment.Center
@@ -471,7 +476,8 @@ private fun SectionHeader(text: String) {
         style = MaterialTheme.typography.labelMedium,
         color = TextSecondary,
         fontWeight = FontWeight.SemiBold,
-        letterSpacing = 1.5.sp
+        letterSpacing = 1.5.sp,
+        modifier = Modifier.semantics { heading() }
     )
 }
 
@@ -484,7 +490,7 @@ private fun ToggleRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(ChipUnselectedBg)
             .padding(4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -523,10 +529,11 @@ private fun ClubToggleChip(
 
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(4.dp))
             .background(bgColor)
-            .border(1.5.dp, borderColor, RoundedCornerShape(20.dp))
+            .border(1.5.dp, borderColor, RoundedCornerShape(4.dp))
             .clickable { onClick() }
+            .semantics { stateDescription = if (enabled) "In bag" else "Not in bag" }
             .padding(horizontal = 16.dp, vertical = 10.dp)
     ) {
         Text(

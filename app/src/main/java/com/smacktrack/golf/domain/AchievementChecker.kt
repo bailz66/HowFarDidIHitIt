@@ -123,20 +123,25 @@ fun checkAchievements(
         var longestStreak = 0
         var currentStreak = 0
         var lastStreakClub: Club? = null
+        // Incremental running averages per club — O(n) instead of O(n²)
+        val clubSums = mutableMapOf<Club, Long>()
+        val clubCounts = mutableMapOf<Club, Int>()
         for (shot in sorted) {
-            // Only compare against prior shots with the same club (running average)
-            val priorClub = sorted.filter { it.club == shot.club && it.timestampMs < shot.timestampMs }
-            val aboveAvg = if (priorClub.isEmpty()) false
-            else shot.distanceYards > priorClub.map { it.distanceYards }.average()
-            // Streak resets when club changes or shot is not above average
+            val priorSum = clubSums[shot.club] ?: 0L
+            val priorCount = clubCounts[shot.club] ?: 0
+            val aboveAvg = priorCount > 0 && shot.distanceYards > priorSum.toDouble() / priorCount
+            // Streak continues only for same club and above average
             if (aboveAvg && (lastStreakClub == null || lastStreakClub == shot.club)) {
                 currentStreak++
                 lastStreakClub = shot.club
                 if (currentStreak > longestStreak) longestStreak = currentStreak
             } else {
-                currentStreak = if (aboveAvg) 1 else 0
-                lastStreakClub = if (aboveAvg) shot.club else null
+                currentStreak = 0
+                lastStreakClub = null
             }
+            // Update running totals after streak check (prior shots only)
+            clubSums[shot.club] = priorSum + shot.distanceYards
+            clubCounts[shot.club] = priorCount + 1
         }
         val highest = cat.tiers.indexOfLast { longestStreak >= it.threshold }
         if (highest >= 0) unlockUpTo(cat, highest)

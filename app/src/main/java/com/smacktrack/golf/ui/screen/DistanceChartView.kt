@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -119,7 +120,7 @@ fun DistanceChartView(
                     val selected = period == selectedPeriod
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
+                            .clip(RoundedCornerShape(4.dp))
                             .background(if (selected) DarkGreen else ChipUnselectedBg)
                             .clickable { onPeriodChanged(period) }
                             .padding(horizontal = 14.dp, vertical = 8.dp)
@@ -163,11 +164,11 @@ fun DistanceChartView(
                             checkedColor = DarkGreen,
                             uncheckedColor = TextTertiary
                         ),
-                        modifier = Modifier.height(20.dp)
+                        modifier = Modifier.size(20.dp)
                     )
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        text = "Weather adj.",
+                        text = "Weather adj",
                         style = MaterialTheme.typography.labelSmall,
                         color = if (weatherAdjusted) DarkGreen else TextSecondary,
                         fontWeight = if (weatherAdjusted) FontWeight.SemiBold else FontWeight.Normal
@@ -235,25 +236,6 @@ private fun ScaleHeader(globalMax: Int, unitLabel: String) {
                 drawLine(tickColor, Offset(x, 14f), Offset(x, 20f), strokeWidth = 1f)
             }
         }
-        // Text labels
-        markers.forEach { value ->
-            val fraction = if (globalMax > 0) value.toFloat() / globalMax else 0f
-            Text(
-                text = "$value",
-                style = MaterialTheme.typography.labelSmall,
-                color = TextTertiary,
-                fontSize = 8.sp,
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(
-                        start = with(androidx.compose.ui.platform.LocalDensity.current) {
-                            // Approximate: we can't know exact Canvas width in dp precisely,
-                            // but we use fillMaxWidth minus padding. This is a best-effort alignment.
-                            0.dp
-                        }
-                    )
-            )
-        }
     }
     // Simpler approach: just show min and max labels at the edges
     Row(
@@ -288,7 +270,7 @@ private fun ClubRangeRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(8.dp))
             .background(Color.White)
             .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -468,11 +450,11 @@ private fun ChartLegend(weatherAdjusted: Boolean) {
                     lineTo(c.x - s, c.y)
                     close()
                 }
-                drawPath(path, color = Color(0xFFE65100), style = Stroke(width = 1.5.dp.toPx()))
+                drawPath(path, color = Color(0xFFE65100), style = Stroke(width = 2.dp.toPx()))
             }
             Spacer(Modifier.width(4.dp))
             Text(
-                text = "Weather Adj",
+                text = "Weather adj",
                 style = MaterialTheme.typography.labelSmall,
                 color = TextTertiary,
                 fontSize = 10.sp

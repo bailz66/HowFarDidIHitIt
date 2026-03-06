@@ -8,6 +8,7 @@ import com.smacktrack.golf.ui.TemperatureUnit
 import com.smacktrack.golf.ui.Trajectory
 import com.smacktrack.golf.ui.WindUnit
 import org.json.JSONObject
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
@@ -82,8 +83,8 @@ class ShotSerializationTest {
 
         assertEquals(0, result.windDirectionDegrees)
         assertEquals(0.0, result.shotBearingDegrees, 0.001)
-        // timestampMs defaults to 0L when missing (stable fallback)
-        assertEquals(0L, result.timestampMs)
+        // timestampMs defaults to current time when missing (not epoch zero)
+        assertTrue(result.timestampMs > 1_000_000_000_000L, "timestampMs should be a recent millis value, not 0")
     }
 
     @Test

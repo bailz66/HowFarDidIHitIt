@@ -197,7 +197,7 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
                         _uiState.update { it.copy(syncStatus = SyncStatus.ERROR) }
                     }
                 } else {
-                    toast("Signed out — using local storage")
+                    toast("Signed out. Using local storage.")
                     _uiState.update { it.copy(syncStatus = SyncStatus.IDLE) }
                 }
                 // Re-subscribe to the correct data source
@@ -376,7 +376,7 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
                     GpsCoordinate(snap.lat, snap.lon)
                 } else {
                     // No valid GPS position — abort and return to club select
-                    toast("Could not get GPS position — try again in an open area")
+                    toast("Could not get GPS position. Try again in an open area.")
                     _uiState.update { it.copy(phase = ShotPhase.CLUB_SELECT) }
                     stopLocationUpdates()
                     stopTrackingService()
@@ -413,11 +413,13 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
             val distanceMeters = haversineMeters(startCoord, currentPos)
             val distanceYards = metersToYards(distanceMeters)
 
-            _uiState.update {
-                it.copy(
-                    liveDistanceYards = distanceYards.roundToInt(),
-                    liveDistanceMeters = distanceMeters.roundToInt()
-                )
+            if (!distanceYards.isNaN() && !distanceMeters.isNaN()) {
+                _uiState.update {
+                    it.copy(
+                        liveDistanceYards = distanceYards.roundToInt(),
+                        liveDistanceMeters = distanceMeters.roundToInt()
+                    )
+                }
             }
         }
     }
@@ -456,7 +458,7 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
                     GpsCoordinate(endSnap.lat, endSnap.lon)
                 } else {
                     // No valid GPS — fall back to start coord (0 distance shot)
-                    toast("GPS lost — distance may be inaccurate")
+                    toast("GPS signal lost. Distance may be inaccurate.")
                     startCoord
                 }
 
@@ -465,13 +467,13 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
 
             // Clamp implausible distances (NaN, infinite, or >500 yards)
             if (distanceYards.isNaN() || distanceYards.isInfinite()) {
-                toast("GPS reading error — distance could not be calculated")
+                toast("GPS reading error. Distance could not be calculated.")
                 distanceYards = 0.0
                 distanceMeters = 0.0
             } else if (distanceYards > 500) {
-                toast("GPS reading seems off — distance capped at 500 yards")
+                toast("Distance exceeded 500 yards. Capped for accuracy.")
                 distanceYards = 500.0
-                distanceMeters = 457.2
+                distanceMeters = 500.0 / 1.09361
             }
 
             // Use real weather or fallback — 21.1°C (70°F) baseline so temperature effect is zero

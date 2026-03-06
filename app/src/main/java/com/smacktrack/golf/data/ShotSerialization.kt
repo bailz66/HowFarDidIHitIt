@@ -37,7 +37,7 @@ internal fun JSONObject.toShotResult(): ShotResult = ShotResult(
     windDirectionCompass = optString("windDirectionCompass", "N"),
     windDirectionDegrees = optInt("windDirectionDegrees", 0),
     shotBearingDegrees = optDouble("shotBearingDegrees", 0.0),
-    timestampMs = optLong("timestampMs", 0L)
+    timestampMs = optLong("timestampMs", System.currentTimeMillis())
 )
 
 // ── Firestore serialization ─────────────────────────────────────────────────

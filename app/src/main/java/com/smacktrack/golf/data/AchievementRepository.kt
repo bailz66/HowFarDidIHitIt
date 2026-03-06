@@ -111,7 +111,7 @@ class AchievementRepository(context: Context) {
                     val map = mutableMapOf<String, Long>()
                     snapshot?.documents?.forEach { doc ->
                         val name = doc.getString("name") ?: doc.id
-                        val ts = doc.getLong("unlockedAt") ?: 0L
+                        val ts = doc.getLong("unlockedAt") ?: System.currentTimeMillis()
                         map[name] = ts
                     }
                     trySend(map)

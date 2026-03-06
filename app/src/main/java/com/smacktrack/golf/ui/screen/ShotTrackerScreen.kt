@@ -16,6 +16,7 @@ package com.smacktrack.golf.ui.screen
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -81,6 +82,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -106,6 +110,9 @@ import com.smacktrack.golf.ui.theme.ChipBorder
 import com.smacktrack.golf.ui.theme.ChipUnselectedBg
 import com.smacktrack.golf.ui.theme.ChipUnselectedText
 import com.smacktrack.golf.ui.theme.DarkGreen
+import com.smacktrack.golf.ui.theme.LightGray
+import com.smacktrack.golf.ui.theme.MidGray
+import com.smacktrack.golf.ui.theme.Red40
 import com.smacktrack.golf.ui.theme.RobotoFamily
 import com.smacktrack.golf.ui.theme.TextPrimary
 import com.smacktrack.golf.ui.theme.TextSecondary
@@ -160,8 +167,19 @@ fun ShotTrackerScreen(
     AnimatedContent(
         targetState = uiState.phase,
         transitionSpec = {
-            (fadeIn(tween(300)) + slideInVertically(tween(300)) { it / 8 }) togetherWith
-                    (fadeOut(tween(200)) + slideOutVertically(tween(200)) { -it / 8 })
+            val isForward = targetState.ordinal > initialState.ordinal
+            if (isForward) {
+                // Forward: new content scales up from 95% + fades in, old shrinks + fades out
+                (fadeIn(tween(400)) + scaleIn(
+                    initialScale = 0.95f,
+                    animationSpec = tween(400)
+                ) + slideInVertically(tween(400)) { it / 12 }) togetherWith
+                    (fadeOut(tween(250)) + slideOutVertically(tween(250)) { -it / 10 })
+            } else {
+                // Backward (reset/cancel): reverse direction
+                (fadeIn(tween(300)) + slideInVertically(tween(300)) { -it / 10 }) togetherWith
+                    (fadeOut(tween(200)) + slideOutVertically(tween(200)) { it / 8 })
+            }
         },
         modifier = modifier.fillMaxSize(),
         label = "phase"
@@ -185,6 +203,7 @@ fun ShotTrackerScreen(
                     distanceYards = uiState.liveDistanceYards,
                     distanceMeters = uiState.liveDistanceMeters,
                     settings = settings,
+                    shotHistory = uiState.shotHistory,
                     onClubSelected = onClubSelected,
                     onEnd = onMarkEnd,
                     onReset = onReset
@@ -224,54 +243,12 @@ private fun ClubSelectContent(
 ) {
     var pendingDeleteTimestamp by remember { mutableStateOf<Long?>(null) }
 
-    // Stagger entrance animation state
-    var staggerStarted by remember { mutableStateOf(false) }
-    var buttonAlpha by remember { mutableStateOf(if (animateEntrance) 0f else 1f) }
-    var buttonScale by remember { mutableStateOf(if (animateEntrance) 0.85f else 1f) }
-    var recentLabelAlpha by remember { mutableStateOf(if (animateEntrance) 0f else 1f) }
-    var recentLabelOffsetY by remember { mutableStateOf(if (animateEntrance) 12f else 0f) }
-    var shotAlphas by remember { mutableStateOf(List(3) { if (animateEntrance) 0f else 1f }) }
-    var shotOffsetsY by remember { mutableStateOf(List(3) { if (animateEntrance) 16f else 0f }) }
+    // Single smooth entrance: animated progress drives both alpha and scale
+    val entranceProgress = remember { androidx.compose.animation.core.Animatable(0f) }
 
     LaunchedEffect(animateEntrance) {
-        if (!animateEntrance || staggerStarted) return@LaunchedEffect
-        staggerStarted = true
-
-        // SMACK button: scale 0.85→1.0 (spring-like) + alpha 0→1 (0ms delay)
-        val btnSteps = 14
-        for (i in 1..btnSteps) {
-            val p = i.toFloat() / btnSteps
-            buttonAlpha = p
-            buttonScale = 0.85f + 0.15f * p + 0.04f * kotlin.math.sin(p * Math.PI.toFloat())
-            delay(20)
-        }
-        buttonAlpha = 1f
-        buttonScale = 1f
-
-        // "RECENT" label (200ms delay from button start, ~80ms after button finishes)
-        delay(80)
-        val labelSteps = 10
-        for (i in 1..labelSteps) {
-            val p = i.toFloat() / labelSteps
-            recentLabelAlpha = p
-            recentLabelOffsetY = 12f * (1f - p)
-            delay(15)
-        }
-        recentLabelAlpha = 1f
-        recentLabelOffsetY = 0f
-
-        // Recent shot rows — stagger each by ~100ms
-        for (row in 0 until minOf(recentShots.size, 3)) {
-            delay(100)
-            val rowSteps = 10
-            for (i in 1..rowSteps) {
-                val p = i.toFloat() / rowSteps
-                shotAlphas = shotAlphas.toMutableList().also { it[row] = p }
-                shotOffsetsY = shotOffsetsY.toMutableList().also { it[row] = 16f * (1f - p) }
-                delay(15)
-            }
-            shotAlphas = shotAlphas.toMutableList().also { it[row] = 1f }
-            shotOffsetsY = shotOffsetsY.toMutableList().also { it[row] = 0f }
+        if (animateEntrance) {
+            entranceProgress.animateTo(1f, tween(500, easing = androidx.compose.animation.core.EaseOut))
         }
     }
 
@@ -284,7 +261,7 @@ private fun ClubSelectContent(
                 TextButton(onClick = {
                     onDeleteShot(ts)
                     pendingDeleteTimestamp = null
-                }) { Text("Delete", color = Color(0xFFE53935)) }
+                }) { Text("Delete", color = Red40) }
             },
             dismissButton = {
                 TextButton(onClick = { pendingDeleteTimestamp = null }) { Text("Cancel") }
@@ -300,27 +277,23 @@ private fun ClubSelectContent(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .graphicsLayer {
+                val p = entranceProgress.value
+                alpha = p
+                scaleX = 0.96f + 0.04f * p
+                scaleY = 0.96f + 0.04f * p
+            }
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Spacer(Modifier.weight(1f))
 
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .graphicsLayer {
-                    alpha = buttonAlpha
-                    scaleX = buttonScale
-                    scaleY = buttonScale
-                }
-        ) {
-            EpicButton(
-                text = "SMACK",
-                enabled = true,
-                pulsate = true
-            ) { onStart() }
-        }
+        EpicButton(
+            text = "SMACK",
+            enabled = true,
+            pulsate = true
+        ) { onStart() }
 
         Spacer(Modifier.weight(1f))
 
@@ -338,29 +311,18 @@ private fun ClubSelectContent(
                 style = MaterialTheme.typography.labelMedium,
                 color = TextSecondary,
                 fontWeight = FontWeight.SemiBold,
-                letterSpacing = 1.5.sp,
-                modifier = Modifier.graphicsLayer {
-                    alpha = recentLabelAlpha
-                    translationY = recentLabelOffsetY
-                }
+                letterSpacing = 1.5.sp
             )
 
             Spacer(Modifier.height(10.dp))
 
-            recentShots.forEachIndexed { displayIndex, shot ->
-                Box(
-                    modifier = Modifier.graphicsLayer {
-                        alpha = shotAlphas.getOrElse(displayIndex) { 1f }
-                        translationY = shotOffsetsY.getOrElse(displayIndex) { 0f }
-                    }
-                ) {
-                    RecentShotRow(
-                        shot = shot,
-                        settings = settings,
-                        onDelete = { pendingDeleteTimestamp = shot.timestampMs },
-                        onClick = { onShotClicked(shot) }
-                    )
-                }
+            recentShots.forEach { shot ->
+                RecentShotRow(
+                    shot = shot,
+                    settings = settings,
+                    onDelete = { pendingDeleteTimestamp = shot.timestampMs },
+                    onClick = { onShotClicked(shot) }
+                )
                 Spacer(Modifier.height(8.dp))
             }
         }
@@ -377,7 +339,7 @@ private fun RecentShotRow(shot: ShotResult, settings: AppSettings, onDelete: (()
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(8.dp))
             .background(ChipUnselectedBg)
             .clickable(onClick = onClick)
             .padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp)
@@ -390,7 +352,7 @@ private fun RecentShotRow(shot: ShotResult, settings: AppSettings, onDelete: (()
             // Club chip
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(14.dp))
+                    .clip(RoundedCornerShape(4.dp))
                     .background(clubChipColor(shot.club.sortOrder))
                     .padding(horizontal = 12.dp, vertical = 4.dp)
             ) {
@@ -446,9 +408,9 @@ private fun ClubChip(
 
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(4.dp))
             .background(bgColor)
-            .border(1.5.dp, borderColor, RoundedCornerShape(20.dp))
+            .border(1.5.dp, borderColor, RoundedCornerShape(4.dp))
             .clickable { onClick() }
             .padding(horizontal = 16.dp, vertical = 10.dp)
     ) {
@@ -530,54 +492,414 @@ private fun EpicButton(
                 text = text,
                 style = MaterialTheme.typography.displaySmall,
                 fontWeight = FontWeight.ExtraBold,
-                color = if (enabled) Color.White else Color(0xFF9DA09A),
+                color = if (enabled) Color.White else TextTertiary,
                 letterSpacing = 6.sp
             )
         }
     }
 }
 
-// ── Calibrating ─────────────────────────────────────────────────────────────
+// ── Calibrating — GPS Lock-On Experience ────────────────────────────────────
+
+private data class SignalParticle(
+    var x: Float, var y: Float,
+    var vx: Float, var vy: Float,
+    var alpha: Float, var radius: Float,
+    var life: Float, val decay: Float
+)
 
 @Composable
 private fun CalibratingContent(label: String, onCancel: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(top = 120.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+    val isStart = "start" in label.lowercase()
+    val durationMs = if (isStart) 3500f else 2000f
+
+    var frame by remember { mutableStateOf(0) }
+    var elapsedMs by remember { mutableStateOf(0f) }
+    var statusText by remember { mutableStateOf("Acquiring signal") }
+    val particles = remember { mutableListOf<SignalParticle>() }
+    // Burst particles — emitted at lock-on
+    val burstParticles = remember { mutableListOf<SignalParticle>() }
+    var burstTriggered by remember { mutableStateOf(false) }
+
+    // Animate frame counter
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(16)
+            frame++
+            elapsedMs += 16f
+            val progress = (elapsedMs / durationMs).coerceIn(0f, 1f)
+            statusText = when {
+                progress < 0.3f -> "Acquiring signal"
+                progress < 0.65f -> "Locking position"
+                progress < 0.9f -> "Refining accuracy"
+                progress < 1f -> "Almost there"
+                else -> "Locked"
+            }
+            // Trigger burst once at completion
+            if (progress >= 1f && !burstTriggered) {
+                burstTriggered = true
+                for (i in 0..35) {
+                    val a = i * (6.2832f / 36f) + kotlin.random.Random.nextFloat() * 0.15f
+                    val spd = 4f + kotlin.random.Random.nextFloat() * 8f
+                    burstParticles.add(SignalParticle(
+                        x = 0f, y = 0f, // will be offset by cx/cy in draw
+                        vx = kotlin.math.cos(a) * spd,
+                        vy = kotlin.math.sin(a) * spd,
+                        alpha = 1f, radius = 2f + kotlin.random.Random.nextFloat() * 4f,
+                        life = 1f, decay = 0.018f + kotlin.random.Random.nextFloat() * 0.012f
+                    ))
+                }
+            }
+        }
+    }
+
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
     ) {
-        CircularProgressIndicator(
-            modifier = Modifier.size(56.dp),
-            color = DarkGreen,
-            strokeWidth = 3.dp,
-            trackColor = Color(0xFFE0E2DC)
-        )
-        Spacer(Modifier.height(28.dp))
-        Text(
-            text = label,
-            style = MaterialTheme.typography.titleLarge,
-            color = TextPrimary,
-            fontWeight = FontWeight.SemiBold
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            text = "Collecting GPS samples",
-            style = MaterialTheme.typography.bodyMedium,
-            color = TextSecondary
-        )
-        Spacer(Modifier.height(24.dp))
-        Box(
-            modifier = Modifier
-                .clip(RoundedCornerShape(50))
-                .clickable { onCancel() }
-                .padding(horizontal = 24.dp, vertical = 14.dp)
-        ) {
-            Text(
-                text = "Cancel",
-                style = MaterialTheme.typography.labelLarge,
-                color = TextTertiary
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val w = size.width
+            val h = size.height
+            val cx = w / 2f
+            val cy = h * 0.38f
+            val time = frame * 0.016f
+            val progress = (elapsedMs / durationMs).coerceIn(0f, 1f)
+
+            // Background radial glow — intensifies with progress
+            val glowAlpha = 0.14f + progress * 0.10f
+            drawRect(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        Color(0xFF1B5E20).copy(alpha = glowAlpha),
+                        Color(0xFF1B5E20).copy(alpha = glowAlpha * 0.4f),
+                        Color.Transparent
+                    ),
+                    center = Offset(cx, cy),
+                    radius = w * 0.9f
+                )
             )
+
+            // ── Radar sweep beam — rotates continuously ──
+            val sweepAngle = time * 1.8f // ~100° per second
+            val sweepLen = w * 0.48f
+            val sweepX = cx + kotlin.math.cos(sweepAngle) * sweepLen
+            val sweepY = cy + kotlin.math.sin(sweepAngle) * sweepLen * 0.7f
+            // Fade trail (wider, translucent)
+            for (trail in 1..8) {
+                val trailAngle = sweepAngle - trail * 0.06f
+                val trailX = cx + kotlin.math.cos(trailAngle) * sweepLen
+                val trailY = cy + kotlin.math.sin(trailAngle) * sweepLen * 0.7f
+                val trailAlpha = (0.08f - trail * 0.009f).coerceAtLeast(0f) * (0.6f + progress * 0.4f)
+                drawLine(
+                    Color(0xFF4CAF50).copy(alpha = trailAlpha),
+                    Offset(cx, cy),
+                    Offset(trailX.toFloat(), trailY.toFloat()),
+                    strokeWidth = 3f
+                )
+            }
+            // Main sweep line
+            drawLine(
+                Color(0xFF66BB6A).copy(alpha = 0.18f + progress * 0.12f),
+                Offset(cx, cy),
+                Offset(sweepX.toFloat(), sweepY.toFloat()),
+                strokeWidth = 2f
+            )
+
+            // ── Radar rings expanding outward ──
+            for (ring in 0..4) {
+                val ringPhase = ((time * 0.5f + ring * 0.2f) % 1f)
+                val ringRadius = ringPhase * w * 0.55f
+                val ringAlpha = (1f - ringPhase) * 0.25f * (0.5f + progress * 0.5f)
+                if (ringAlpha > 0.01f) {
+                    drawCircle(
+                        color = Color(0xFF2E7D32).copy(alpha = ringAlpha * 0.3f),
+                        radius = ringRadius,
+                        center = Offset(cx, cy),
+                        style = Stroke(width = 6f)
+                    )
+                    drawCircle(
+                        color = Color(0xFF4CAF50).copy(alpha = ringAlpha),
+                        radius = ringRadius,
+                        center = Offset(cx, cy),
+                        style = Stroke(width = 2f)
+                    )
+                }
+            }
+
+            // ── Grid crosshair lines ──
+            val crossAlpha = 0.10f + progress * 0.10f
+            val crossLen = w * 0.35f
+            drawLine(Color(0xFF2E7D32).copy(alpha = crossAlpha),
+                Offset(cx - crossLen, cy), Offset(cx + crossLen, cy), strokeWidth = 1.5f)
+            drawLine(Color(0xFF2E7D32).copy(alpha = crossAlpha),
+                Offset(cx, cy - crossLen), Offset(cx, cy + crossLen), strokeWidth = 1.5f)
+            // Tick marks
+            for (tick in 1..3) {
+                val tickDist = crossLen * tick / 3f
+                val tickSize = 6f
+                val tickAlpha = crossAlpha * 0.7f
+                drawLine(Color(0xFF2E7D32).copy(alpha = tickAlpha),
+                    Offset(cx - tickDist, cy - tickSize), Offset(cx - tickDist, cy + tickSize), 1f)
+                drawLine(Color(0xFF2E7D32).copy(alpha = tickAlpha),
+                    Offset(cx + tickDist, cy - tickSize), Offset(cx + tickDist, cy + tickSize), 1f)
+                drawLine(Color(0xFF2E7D32).copy(alpha = tickAlpha),
+                    Offset(cx - tickSize, cy - tickDist), Offset(cx + tickSize, cy - tickDist), 1f)
+                drawLine(Color(0xFF2E7D32).copy(alpha = tickAlpha),
+                    Offset(cx - tickSize, cy + tickDist), Offset(cx + tickSize, cy + tickDist), 1f)
+            }
+
+            // ── Orbiting satellite dots — converge toward center as progress increases ──
+            for (sat in 0..5) {
+                val baseOrbit = w * (0.14f + sat * 0.04f)
+                val orbitRadius = baseOrbit * (1f - progress * 0.4f) // shrink orbits as lock-on
+                val speed = 0.7f + sat * 0.25f
+                val angle = time * speed + sat * 1.047f
+                val sx = cx + kotlin.math.cos(angle) * orbitRadius
+                val sy = cy + kotlin.math.sin(angle) * orbitRadius * 0.7f
+                val satAlpha = 0.5f + progress * 0.4f
+                // Connection line to center
+                drawLine(
+                    Color(0xFF4CAF50).copy(alpha = satAlpha * 0.18f),
+                    Offset(cx, cy), Offset(sx.toFloat(), sy.toFloat()), strokeWidth = 1f
+                )
+                // Glow halo
+                drawCircle(
+                    color = Color(0xFF81C784).copy(alpha = satAlpha * 0.2f),
+                    radius = 14f, center = Offset(sx.toFloat(), sy.toFloat())
+                )
+                drawCircle(
+                    color = Color(0xFF81C784).copy(alpha = satAlpha * 0.5f),
+                    radius = 8f, center = Offset(sx.toFloat(), sy.toFloat())
+                )
+                // Core
+                drawCircle(
+                    color = Color(0xFF4CAF50).copy(alpha = satAlpha),
+                    radius = 4f, center = Offset(sx.toFloat(), sy.toFloat())
+                )
+            }
+
+            // ── Converging signal particles ──
+            if (frame % 2 == 0 && progress < 0.95f) {
+                val pAngle = kotlin.random.Random.nextFloat() * 6.2832f
+                val dist = w * (0.3f + kotlin.random.Random.nextFloat() * 0.25f)
+                particles.add(SignalParticle(
+                    x = cx + kotlin.math.cos(pAngle) * dist,
+                    y = cy + kotlin.math.sin(pAngle) * dist * 0.7f,
+                    vx = 0f, vy = 0f,
+                    alpha = 0.9f, radius = 2.5f + kotlin.random.Random.nextFloat() * 3f,
+                    life = 1f, decay = 0.010f + kotlin.random.Random.nextFloat() * 0.008f
+                ))
+            }
+            val pIter = particles.iterator()
+            while (pIter.hasNext()) {
+                val p = pIter.next()
+                val dx = cx - p.x; val dy = cy - p.y
+                val dist = kotlin.math.sqrt(dx * dx + dy * dy).coerceAtLeast(1f)
+                p.vx += dx / dist * 1.5f
+                p.vy += dy / dist * 1.5f
+                p.vx *= 0.95f; p.vy *= 0.95f
+                p.x += p.vx; p.y += p.vy
+                p.life -= p.decay
+                p.alpha = (p.life * 0.9f).coerceIn(0f, 0.9f)
+                if (p.life <= 0 || dist < 10f) {
+                    pIter.remove()
+                } else {
+                    drawCircle(Color(0xFF81C784).copy(alpha = p.alpha * 0.35f),
+                        p.radius + 5f, Offset(p.x, p.y))
+                    drawCircle(Color(0xFFA5D6A7).copy(alpha = p.alpha),
+                        p.radius, Offset(p.x, p.y))
+                    drawCircle(Color.White.copy(alpha = p.alpha * 0.4f),
+                        p.radius * 0.4f, Offset(p.x, p.y))
+                }
+            }
+
+            // ── Lock-on burst particles — explode outward at completion ──
+            if (burstTriggered) {
+                val bIter = burstParticles.iterator()
+                while (bIter.hasNext()) {
+                    val bp = bIter.next()
+                    bp.x += bp.vx; bp.y += bp.vy
+                    bp.vx *= 0.96f; bp.vy *= 0.96f
+                    bp.life -= bp.decay
+                    bp.alpha = bp.life.coerceIn(0f, 1f)
+                    if (bp.life <= 0) {
+                        bIter.remove()
+                    } else {
+                        val bx = cx + bp.x
+                        val by = cy + bp.y
+                        drawCircle(Color(0xFF66BB6A).copy(alpha = bp.alpha * 0.5f),
+                            bp.radius + 6f, Offset(bx, by))
+                        drawCircle(Color(0xFFA5D6A7).copy(alpha = bp.alpha),
+                            bp.radius, Offset(bx, by))
+                        drawCircle(Color.White.copy(alpha = bp.alpha * 0.7f),
+                            bp.radius * 0.5f, Offset(bx, by))
+                    }
+                }
+
+                // Lock-on flash — bright ring that expands and fades
+                val flashAge = (elapsedMs - durationMs).coerceAtLeast(0f)
+                val flashProgress = (flashAge / 500f).coerceIn(0f, 1f) // 500ms flash
+                val flashRadius = 60f + flashProgress * w * 0.35f
+                val flashAlpha = (1f - flashProgress) * 0.5f
+                if (flashAlpha > 0.01f) {
+                    drawCircle(
+                        color = Color(0xFF4CAF50).copy(alpha = flashAlpha),
+                        radius = flashRadius,
+                        center = Offset(cx, cy),
+                        style = Stroke(width = 4f * (1f - flashProgress) + 1f)
+                    )
+                    // Inner glow fill
+                    drawCircle(
+                        color = Color(0xFF81C784).copy(alpha = flashAlpha * 0.3f),
+                        radius = flashRadius * 0.6f,
+                        center = Offset(cx, cy)
+                    )
+                }
+            }
+
+            // ── Center target — progress arc ──
+            val targetRadius = 48f
+            // Outer subtle ring
+            drawCircle(
+                color = Color(0xFF2E7D32).copy(alpha = 0.08f),
+                radius = targetRadius + 12f,
+                center = Offset(cx, cy),
+                style = Stroke(width = 1f)
+            )
+            // Track ring
+            drawCircle(
+                color = MidGray,
+                radius = targetRadius,
+                center = Offset(cx, cy),
+                style = Stroke(width = 4f)
+            )
+            // Progress arc
+            if (progress > 0f) {
+                // Glow behind arc
+                drawArc(
+                    color = Color(0xFF4CAF50).copy(alpha = 0.25f),
+                    startAngle = -90f,
+                    sweepAngle = 360f * progress,
+                    useCenter = false,
+                    topLeft = Offset(cx - targetRadius, cy - targetRadius),
+                    size = androidx.compose.ui.geometry.Size(targetRadius * 2, targetRadius * 2),
+                    style = Stroke(width = 8f, cap = StrokeCap.Round)
+                )
+                // Main arc
+                drawArc(
+                    color = Color(0xFF2E7D32),
+                    startAngle = -90f,
+                    sweepAngle = 360f * progress,
+                    useCenter = false,
+                    topLeft = Offset(cx - targetRadius, cy - targetRadius),
+                    size = androidx.compose.ui.geometry.Size(targetRadius * 2, targetRadius * 2),
+                    style = Stroke(width = 4.5f, cap = StrokeCap.Round)
+                )
+            }
+
+            // Center dot — pulses faster as lock-on approaches, freezes at completion
+            val pulseSpeed = 3f + progress * 5f
+            val pulseAmt = if (burstTriggered) 0f else 0.25f * (1f - progress)
+            val pulseScale = 1f + kotlin.math.sin(time * pulseSpeed) * pulseAmt
+            val dotRadius = (if (burstTriggered) 10f else 8f) * pulseScale
+            // Wide outer glow
+            drawCircle(
+                brush = Brush.radialGradient(
+                    listOf(
+                        Color(0xFF4CAF50).copy(alpha = 0.25f + progress * 0.2f),
+                        Color(0xFF4CAF50).copy(alpha = 0.08f),
+                        Color.Transparent
+                    ),
+                    center = Offset(cx, cy),
+                    radius = dotRadius * 6f
+                ),
+                radius = dotRadius * 6f, center = Offset(cx, cy)
+            )
+            // Core dot — turns bright green on lock
+            val coreColor = if (burstTriggered) Color(0xFF4CAF50) else Color(0xFF2E7D32)
+            drawCircle(color = coreColor, radius = dotRadius, center = Offset(cx, cy))
+            drawCircle(color = Color.White, radius = dotRadius * 0.45f, center = Offset(cx, cy))
+
+            // ── Signal strength bars ──
+            val barCount = 5
+            val barWidth = 6f
+            val barSpacing = 5f
+            val barsWidth = barCount * barWidth + (barCount - 1) * barSpacing
+            val barStartX = cx - barsWidth / 2f
+            val barBaseY = cy + targetRadius + 28f
+            for (i in 0 until barCount) {
+                val barThreshold = (i + 1).toFloat() / barCount
+                val barActive = progress >= barThreshold * 0.85f
+                val barHeight = 8f + i * 6f
+                val barColor = if (barActive) Color(0xFF4CAF50) else Color(0xFFD5D8D0)
+                val bx = barStartX + i * (barWidth + barSpacing)
+                drawRoundRect(
+                    color = barColor,
+                    topLeft = Offset(bx, barBaseY - barHeight),
+                    size = androidx.compose.ui.geometry.Size(barWidth, barHeight),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(3f)
+                )
+            }
+        }
+
+        // Text overlay
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Spacer(Modifier.weight(0.65f))
+
+            val dotCount = (frame / 20) % 4
+            val dots = if (burstTriggered) "" else ".".repeat(dotCount)
+
+            Text(
+                text = "$statusText$dots",
+                style = MaterialTheme.typography.titleLarge,
+                color = if (burstTriggered) DarkGreen else TextPrimary,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(Modifier.height(4.dp))
+
+            // Simulated accuracy readout
+            val accuracy = when {
+                burstTriggered -> "\u00B13m"
+                elapsedMs < durationMs * 0.3f -> "\u00B115m"
+                elapsedMs < durationMs * 0.5f -> "\u00B110m"
+                elapsedMs < durationMs * 0.7f -> "\u00B17m"
+                elapsedMs < durationMs * 0.85f -> "\u00B15m"
+                else -> "\u00B14m"
+            }
+            Text(
+                text = if (isStart) "Hold still at your ball" else "Hold still at landing spot",
+                style = MaterialTheme.typography.bodyMedium,
+                color = TextSecondary
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = "Accuracy: $accuracy",
+                style = MaterialTheme.typography.labelSmall,
+                color = if (burstTriggered) DarkGreen else TextTertiary,
+                fontWeight = if (burstTriggered) FontWeight.Bold else FontWeight.Normal
+            )
+
+            Spacer(Modifier.weight(0.35f))
+
+            // Cancel button
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { onCancel() }
+                    .padding(horizontal = 24.dp, vertical = 14.dp)
+            ) {
+                Text(
+                    text = "Cancel",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = TextTertiary
+                )
+            }
+            Spacer(Modifier.height(32.dp))
         }
     }
 }
@@ -592,14 +914,26 @@ private fun WalkingContent(
     distanceYards: Int,
     distanceMeters: Int,
     settings: AppSettings,
+    shotHistory: List<ShotResult> = emptyList(),
     onClubSelected: (Club) -> Unit,
     onEnd: () -> Unit,
     onReset: () -> Unit
 ) {
     var showResetConfirm by remember { mutableStateOf(false) }
-    val primaryDistance = if (settings.distanceUnit == DistanceUnit.YARDS) distanceYards else distanceMeters
-    val primaryUnit = if (settings.distanceUnit == DistanceUnit.YARDS) "YARDS" else "METERS"
-    val secondaryDistance = if (settings.distanceUnit == DistanceUnit.YARDS) "${distanceMeters}m" else "${distanceYards}yd"
+    val useYards = settings.distanceUnit == DistanceUnit.YARDS
+    val primaryDistance = if (useYards) distanceYards else distanceMeters
+    val primaryUnit = if (useYards) "YARDS" else "METERS"
+    val secondaryDistance = if (useYards) "${distanceMeters}m" else "${distanceYards}yd"
+
+    // Compute average distance for the selected club
+    val clubAvgDistance = remember(club, shotHistory, useYards) {
+        val clubShots = shotHistory.filter { it.club == club }
+        if (clubShots.isEmpty()) 0
+        else {
+            val distances = clubShots.map { if (useYards) it.distanceYards else it.distanceMeters }
+            distances.average().toInt()
+        }
+    }
 
     if (showResetConfirm) {
         AlertDialog(
@@ -608,7 +942,7 @@ private fun WalkingContent(
             text = { Text("Your current tracking progress will be lost.") },
             confirmButton = {
                 TextButton(onClick = { showResetConfirm = false; onReset() }) {
-                    Text("Reset", color = Color(0xFFE53935))
+                    Text("Reset", color = Red40)
                 }
             },
             dismissButton = {
@@ -648,7 +982,25 @@ private fun WalkingContent(
             color = TextSecondary
         )
 
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(16.dp))
+
+        // Animated walking strip — distance-scaled with flag at club average
+        WalkingStrip(
+            primaryDistance = primaryDistance,
+            clubAvgDistance = clubAvgDistance,
+            unitLabel = if (useYards) "yd" else "m"
+        )
+        if (clubAvgDistance > 0) {
+            Text(
+                text = "avg ${clubAvgDistance}${if (useYards) "yd" else "m"}",
+                style = MaterialTheme.typography.labelSmall,
+                color = TextTertiary,
+                fontSize = 10.sp,
+                modifier = Modifier.padding(top = 2.dp)
+            )
+        }
+
+        Spacer(Modifier.height(16.dp))
 
         EpicButton(text = "TRACK", onClick = onEnd)
 
@@ -677,7 +1029,7 @@ private fun WalkingContent(
         // Reset — 48dp minimum touch target, with confirmation
         Box(
             modifier = Modifier
-                .clip(RoundedCornerShape(50))
+                .clip(RoundedCornerShape(8.dp))
                 .clickable { showResetConfirm = true }
                 .padding(horizontal = 24.dp, vertical = 14.dp)
         ) {
@@ -689,6 +1041,162 @@ private fun WalkingContent(
         }
 
         Spacer(Modifier.height(16.dp))
+    }
+}
+
+// ── Walking animation strip ─────────────────────────────────────────────────
+
+@Composable
+private fun WalkingStrip(
+    primaryDistance: Int,
+    clubAvgDistance: Int,
+    unitLabel: String
+) {
+    var frame by remember { mutableStateOf(0) }
+    var prevDist by remember { mutableStateOf(primaryDistance) }
+    var speed by remember { mutableStateOf(0f) }
+
+    // Smooth the walking man position
+    val manProgress = remember { Animatable(0f) }
+
+    // Scale: flag at clubAvg, right edge at clubAvg * 1.2 (or fallback 250 if no history)
+    val scaleMax = if (clubAvgDistance > 0) (clubAvgDistance * 1.2f).coerceAtLeast(20f) else 250f
+    val flagFrac = if (clubAvgDistance > 0) clubAvgDistance / scaleMax else 0f
+    val targetManFrac = (primaryDistance / scaleMax).coerceIn(0f, 1f)
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(16)
+            frame++
+            speed = (speed * 0.97f).coerceAtLeast(if (primaryDistance > 0) 0.3f else 0.1f)
+        }
+    }
+
+    LaunchedEffect(primaryDistance) {
+        if (primaryDistance != prevDist) {
+            speed = (speed + kotlin.math.abs(primaryDistance - prevDist) * 0.4f).coerceAtMost(3f)
+            prevDist = primaryDistance
+        }
+    }
+
+    // Animate man position smoothly
+    LaunchedEffect(targetManFrac) {
+        manProgress.animateTo(targetManFrac, tween(600))
+    }
+
+    Canvas(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(72.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(LightGray)
+    ) {
+        val w = size.width
+        val h = size.height
+        val time = frame * 0.016f
+        val cy = h / 2f
+
+        val padLeft = 40f
+        val padRight = 24f
+        val trackLen = w - padLeft - padRight
+
+        // ── Scrolling fairway dashes ──
+        val dashSpacing = 48f
+        val dashCount = (w / dashSpacing).toInt() + 2
+        val scrollOffset = (time * 40f * speed) % dashSpacing
+        val manX = padLeft + trackLen * manProgress.value
+
+        for (i in 0 until dashCount) {
+            val dx = i * dashSpacing + scrollOffset - dashSpacing
+            val dashW = 18f + speed * 4f
+            val dashH = 4f
+            val fadeDist = kotlin.math.abs(dx - manX) / (w / 2f)
+            val dashAlpha = (1f - fadeDist * fadeDist) * (0.18f + speed * 0.1f)
+            if (dashAlpha > 0.01f) {
+                drawRoundRect(
+                    color = Color(0xFF4CAF50).copy(alpha = dashAlpha.coerceAtMost(0.4f)),
+                    topLeft = Offset(dx - dashW / 2f, cy - dashH / 2f - 7f),
+                    size = androidx.compose.ui.geometry.Size(dashW, dashH),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(2f)
+                )
+                drawRoundRect(
+                    color = Color(0xFF4CAF50).copy(alpha = dashAlpha.coerceAtMost(0.4f)),
+                    topLeft = Offset(dx - dashW / 2f + dashSpacing * 0.4f, cy - dashH / 2f + 7f),
+                    size = androidx.compose.ui.geometry.Size(dashW * 0.8f, dashH),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(2f)
+                )
+            }
+        }
+
+        // ── Flag at club average distance ──
+        val flagX = if (flagFrac > 0f) padLeft + trackLen * flagFrac else w - 50f
+        val flagPoleBot = cy + 16f
+        val flagPoleTop = cy - 20f
+        drawLine(Color(0xFF1B5E20), Offset(flagX, flagPoleBot), Offset(flagX, flagPoleTop), 2f)
+        val wave = kotlin.math.sin(time * 4f) * 3f
+        val flagPath = Path().apply {
+            moveTo(flagX, flagPoleTop)
+            lineTo(flagX - 16f + wave, flagPoleTop + 7f)
+            lineTo(flagX, flagPoleTop + 14f)
+            close()
+        }
+        drawPath(flagPath, Color(0xFFE53935).copy(alpha = 0.85f))
+
+        // Small tick mark under flag showing average
+        if (clubAvgDistance > 0) {
+            drawLine(Color(0xFF757872).copy(alpha = 0.5f),
+                Offset(flagX, flagPoleBot + 2f), Offset(flagX, flagPoleBot + 6f), 1f)
+        }
+
+        // ── Start tee marker at left ──
+        val teeX = padLeft
+        drawLine(Color(0xFF1B5E20).copy(alpha = 0.4f),
+            Offset(teeX, cy + 16f), Offset(teeX, cy - 6f), 2f)
+        drawCircle(Color(0xFFFFFFFF), 5f, Offset(teeX, cy - 9f))
+        drawCircle(MidGray, 5f, Offset(teeX, cy - 9f), style = Stroke(1.5f))
+
+        // ── Progress track line ──
+        val trackY = cy + 22f
+        val trackEnd = padLeft + trackLen
+        drawLine(MidGray, Offset(teeX, trackY), Offset(trackEnd, trackY), 3f, cap = StrokeCap.Round)
+
+        // Filled progress (green line up to man's position)
+        if (manProgress.value > 0f) {
+            val progEnd = padLeft + trackLen * manProgress.value
+            drawLine(Color(0xFF4CAF50), Offset(teeX, trackY), Offset(progEnd, trackY), 3.5f, cap = StrokeCap.Round)
+            drawCircle(Color(0xFF2E7D32), 5.5f, Offset(progEnd, trackY))
+        }
+
+        // ── Walking figure — animated stick figure at man's position ──
+        val figX = manX
+        val figY = cy
+        val isMoving = speed > 0.4f
+        val stride = if (isMoving) kotlin.math.sin(time * (3f + speed * 2f)) else 0f
+        val bounce = if (isMoving) kotlin.math.abs(kotlin.math.sin(time * (6f + speed * 4f))) * 3f else 0f
+
+        val bodyTop = figY - 16f - bounce
+        val bodyBot = figY + 6f - bounce
+        drawLine(Color(0xFF2E7D32), Offset(figX, bodyTop), Offset(figX, bodyBot), 3.5f, cap = StrokeCap.Round)
+
+        drawCircle(Color(0xFF2E7D32), 6.5f, Offset(figX, bodyTop - 6.5f))
+
+        val legLen = 12f
+        val legSpread = stride * 8f
+        drawLine(Color(0xFF2E7D32),
+            Offset(figX, bodyBot), Offset(figX + legSpread, bodyBot + legLen),
+            3f, cap = StrokeCap.Round)
+        drawLine(Color(0xFF2E7D32),
+            Offset(figX, bodyBot), Offset(figX - legSpread, bodyBot + legLen),
+            3f, cap = StrokeCap.Round)
+
+        val armY = bodyTop + 8f
+        val armLen = 10f
+        drawLine(Color(0xFF2E7D32),
+            Offset(figX, armY), Offset(figX - legSpread * 0.8f, armY + armLen),
+            2.5f, cap = StrokeCap.Round)
+        drawLine(Color(0xFF2E7D32),
+            Offset(figX, armY), Offset(figX + legSpread * 0.8f, armY + armLen),
+            2.5f, cap = StrokeCap.Round)
     }
 }
 
@@ -713,15 +1221,6 @@ private fun ResultContent(
     }
     val isPersonalBest = percentile != null && percentile >= 100f
 
-    // PB gold glow animation
-    val pbGlow = rememberInfiniteTransition(label = "pb-glow")
-    val pbGlowAlpha by pbGlow.animateFloat(
-        initialValue = 0.3f,
-        targetValue = 0.7f,
-        animationSpec = infiniteRepeatable(tween(1200), RepeatMode.Reverse),
-        label = "pb-glow-alpha"
-    )
-
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -739,19 +1238,11 @@ private fun ResultContent(
                 RoundedCornerShape(24.dp)
             )
         else
-            Modifier.border(1.5.dp, Color(0xFFE0E2DC), RoundedCornerShape(24.dp))
+            Modifier.border(1.5.dp, MidGray, RoundedCornerShape(24.dp))
 
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .then(
-                    if (isPersonalBest) Modifier.graphicsLayer {
-                        shadowElevation = 12f * pbGlowAlpha
-                        shape = RoundedCornerShape(24.dp)
-                        ambientShadowColor = Color(0xFFFFAB00)
-                        spotShadowColor = Color(0xFFFFAB00)
-                    } else Modifier
-                )
                 .clip(RoundedCornerShape(24.dp))
                 .background(Color.White)
                 .then(cardBorder)
@@ -868,7 +1359,7 @@ private fun ResultContent(
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     Box(
                                         modifier = Modifier
-                                            .clip(RoundedCornerShape(20.dp))
+                                            .clip(RoundedCornerShape(12.dp))
                                             .background(
                                                 Brush.linearGradient(
                                                     listOf(
@@ -881,7 +1372,7 @@ private fun ResultContent(
                                             .border(
                                                 1.dp,
                                                 Color(0xFFFFAB00).copy(alpha = 0.3f),
-                                                RoundedCornerShape(20.dp)
+                                                RoundedCornerShape(12.dp)
                                             )
                                             .padding(horizontal = 28.dp, vertical = 12.dp)
                                     ) {
@@ -915,7 +1406,7 @@ private fun ResultContent(
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(20.dp))
+                                        .clip(RoundedCornerShape(12.dp))
                                         .background(Color(0xFFFFAB00).copy(alpha = 0.12f))
                                         .padding(horizontal = 20.dp, vertical = 8.dp)
                                 ) {
@@ -938,7 +1429,7 @@ private fun ResultContent(
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(20.dp))
+                                        .clip(RoundedCornerShape(12.dp))
                                         .background(DarkGreen.copy(alpha = 0.10f))
                                         .padding(horizontal = 20.dp, vertical = 8.dp)
                                 ) {
@@ -1061,9 +1552,9 @@ fun WindIndicator(
                 if (hasControls && onSpeedDown != null) {
                     Box(
                         modifier = Modifier
-                            .size(32.dp)
+                            .size(40.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFFE0E2DC))
+                            .background(MidGray)
                             .clickable { onSpeedDown() },
                         contentAlignment = Alignment.Center
                     ) {
@@ -1085,9 +1576,9 @@ fun WindIndicator(
                 if (hasControls && onSpeedUp != null) {
                     Box(
                         modifier = Modifier
-                            .size(32.dp)
+                            .size(40.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFFE0E2DC))
+                            .background(MidGray)
                             .clickable { onSpeedUp() },
                         contentAlignment = Alignment.Center
                     ) {
@@ -1132,9 +1623,9 @@ fun WindIndicator(
                 Spacer(Modifier.height(4.dp))
                 Box(
                     modifier = Modifier
-                        .size(32.dp)
+                        .size(40.dp)
                         .clip(CircleShape)
-                        .background(Color(0xFFE0E2DC))
+                        .background(MidGray)
                         .clickable { onDirectionTap() },
                     contentAlignment = Alignment.Center
                 ) {

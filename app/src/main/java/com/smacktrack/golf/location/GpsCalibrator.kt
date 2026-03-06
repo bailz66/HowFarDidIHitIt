@@ -104,16 +104,19 @@ private fun weightedCentroid(samples: List<GpsSample>): GpsCoordinate {
     var totalWeight = 0.0
 
     for (sample in samples) {
-        val w = 1.0 / (sample.accuracyMeters * sample.accuracyMeters)
+        val acc = sample.accuracyMeters.coerceAtLeast(0.1)
+        val w = 1.0 / (acc * acc)
         sumLat += sample.lat * w
         sumLon += sample.lon * w
         totalWeight += w
     }
 
+    if (totalWeight <= 0) return GpsCoordinate(samples.first().lat, samples.first().lon)
     return GpsCoordinate(sumLat / totalWeight, sumLon / totalWeight)
 }
 
 private fun median(values: List<Double>): Double {
+    if (values.isEmpty()) return 0.0
     val sorted = values.sorted()
     val mid = sorted.size / 2
     return if (sorted.size % 2 == 0) {
