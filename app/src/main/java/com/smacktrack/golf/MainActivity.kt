@@ -145,9 +145,14 @@ class MainActivity : ComponentActivity() {
 
         // Initialize Firebase App Check for API abuse protection
         Firebase.initialize(this)
-        Firebase.appCheck.installAppCheckProviderFactory(
-            PlayIntegrityAppCheckProviderFactory.getInstance()
-        )
+        try {
+            Firebase.appCheck.installAppCheckProviderFactory(
+                PlayIntegrityAppCheckProviderFactory.getInstance()
+            )
+        } catch (e: Exception) {
+            // App Check may fail on emulators or devices without Play Integrity
+            android.util.Log.w("MainActivity", "App Check init failed", e)
+        }
 
         authManager = AuthManager(this)
         viewModel.authManager = authManager

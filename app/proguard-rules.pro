@@ -42,6 +42,10 @@
 -keep class androidx.credentials.** { *; }
 -keep class com.google.android.libraries.identity.googleid.** { *; }
 
+# ── Firebase App Check ──────────────────────────────────────────────────
+-keep class com.google.firebase.appcheck.** { *; }
+-keep class com.google.firebase.appcheck.playintegrity.** { *; }
+
 # ── Firebase Crashlytics ─────────────────────────────────────────────────
 # Keep Crashlytics deobfuscation info
 -keepattributes *Annotation*
