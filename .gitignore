@@ -16,3 +16,4 @@ local.properties
 app/google-services.json
 hs_err_pid*.log
 replay_pid*.log
+*.jks

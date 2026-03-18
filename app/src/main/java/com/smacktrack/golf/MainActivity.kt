@@ -98,6 +98,10 @@ import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import com.google.firebase.Firebase
+import com.google.firebase.appcheck.appCheck
+import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
+import com.google.firebase.initialize
 import com.smacktrack.golf.data.AuthManager
 import com.smacktrack.golf.domain.AchievementCategory
 import com.smacktrack.golf.ui.AppSettings
@@ -138,6 +142,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Initialize Firebase App Check for API abuse protection
+        Firebase.initialize(this)
+        Firebase.appCheck.installAppCheckProviderFactory(
+            PlayIntegrityAppCheckProviderFactory.getInstance()
+        )
+
         authManager = AuthManager(this)
         viewModel.authManager = authManager
         enableEdgeToEdge()
@@ -183,6 +194,17 @@ fun SmackTrackApp(viewModel: ShotTrackerViewModel) {
     var splashFinished by remember { mutableStateOf(false) }
     var detailShot by remember { mutableStateOf<ShotResult?>(null) }
     var showAchievements by remember { mutableStateOf(false) }
+
+    // Log screen views when tab changes
+    LaunchedEffect(selectedTab) {
+        val screenName = when (selectedTab) {
+            0 -> "tracker"
+            1 -> "stats"
+            2 -> "history"
+            else -> "unknown"
+        }
+        viewModel.analyticsTracker.logScreenView(screenName)
+    }
 
     // Back button closes settings/achievements overlays instead of exiting app
     BackHandler(enabled = showSettings || showAchievements) {
@@ -514,7 +536,8 @@ fun SmackTrackApp(viewModel: ShotTrackerViewModel) {
             shot = shot,
             shotHistory = uiState.shotHistory,
             settings = uiState.settings,
-            onDismiss = { detailShot = null }
+            onDismiss = { detailShot = null },
+            onShared = { viewModel.analyticsTracker.logShare(shot.club.name, shot.distanceYards) }
         )
     }
 
@@ -566,7 +589,8 @@ private fun ShotDetailOverlay(
     shot: ShotResult,
     shotHistory: List<ShotResult>,
     settings: AppSettings,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onShared: () -> Unit = {}
 ) {
     val dateText = remember(shot.timestampMs) {
         SimpleDateFormat("MMM d, yyyy 'at' h:mm a", Locale.getDefault())
@@ -629,7 +653,12 @@ private fun ShotDetailOverlay(
                 )
 
                 Spacer(Modifier.height(20.dp))
-                ShareShotButton(shot = shot, settings = settings, shotHistory = shotHistory)
+                ShareShotButton(
+                    shot = shot,
+                    settings = settings,
+                    shotHistory = shotHistory,
+                    onShared = onShared
+                )
             }
 
             // Close button pinned outside scroll

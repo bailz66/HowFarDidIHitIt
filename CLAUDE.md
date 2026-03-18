@@ -179,7 +179,7 @@ export JAVA_HOME="F:/android-studio/jbr"
 ### SHA-1 Fingerprints (registered in Firebase Console → Project settings → Your apps)
 
 - **Debug**: `F5:20:03:5C:D2:FF:F7:A7:92:CB:06:C9:C6:69:B4:A6:BB:03:F6:C4` (from `~/.android/debug.keystore`, valid until 2056)
-- **Release**: TODO — add release keystore SHA-1 before publishing to Play Store
+- **Release**: `97:F2:0B:3F:9A:4A:9B:FD:EA:3F:AE:E8:1B:3A:3A:96:0A:01:90:DA` (from `C:\Users\User\smacktrack-release.jks`, alias `release`)
 
 To get a SHA-1:
 ```bash

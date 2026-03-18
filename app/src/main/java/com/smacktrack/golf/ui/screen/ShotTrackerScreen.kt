@@ -194,7 +194,12 @@ fun ShotTrackerScreen(
                 onShotClicked = onShotClicked,
                 animateEntrance = animateEntrance
             )
-            ShotPhase.CALIBRATING_START -> CalibratingContent(label = "Marking start position", onCancel = onReset)
+            ShotPhase.CALIBRATING_START -> CalibratingContent(
+                label = "Marking start position",
+                realAccuracyMeters = uiState.calibrationAccuracyMeters,
+                realProgress = uiState.calibrationProgress,
+                onCancel = onReset
+            )
             ShotPhase.WALKING -> {
                 val club = uiState.selectedClub ?: return@AnimatedContent
                 WalkingContent(
@@ -209,7 +214,12 @@ fun ShotTrackerScreen(
                     onReset = onReset
                 )
             }
-            ShotPhase.CALIBRATING_END -> CalibratingContent(label = "Marking end position", onCancel = onReset)
+            ShotPhase.CALIBRATING_END -> CalibratingContent(
+                label = "Marking end position",
+                realAccuracyMeters = null,
+                realProgress = null,
+                onCancel = onReset
+            )
             ShotPhase.RESULT -> {
                 val result = uiState.shotResult ?: return@AnimatedContent
                 ResultContent(
@@ -509,9 +519,15 @@ private data class SignalParticle(
 )
 
 @Composable
-private fun CalibratingContent(label: String, onCancel: () -> Unit) {
+private fun CalibratingContent(
+    label: String,
+    realAccuracyMeters: Double?,
+    realProgress: Float?,
+    onCancel: () -> Unit
+) {
     val isStart = "start" in label.lowercase()
-    val durationMs = if (isStart) 3500f else 2000f
+    val useRealData = isStart && realProgress != null
+    val durationMs = if (isStart) 7000f else 2000f  // Max duration for time-based fallback
 
     var frame by remember { mutableStateOf(0) }
     var elapsedMs by remember { mutableStateOf(0f) }
@@ -527,28 +543,58 @@ private fun CalibratingContent(label: String, onCancel: () -> Unit) {
             delay(16)
             frame++
             elapsedMs += 16f
-            val progress = (elapsedMs / durationMs).coerceIn(0f, 1f)
-            statusText = when {
-                progress < 0.3f -> "Acquiring signal"
-                progress < 0.65f -> "Locking position"
-                progress < 0.9f -> "Refining accuracy"
-                progress < 1f -> "Almost there"
-                else -> "Locked"
-            }
-            // Trigger burst once at completion
-            if (progress >= 1f && !burstTriggered) {
-                burstTriggered = true
-                for (i in 0..35) {
-                    val a = i * (6.2832f / 36f) + kotlin.random.Random.nextFloat() * 0.15f
-                    val spd = 4f + kotlin.random.Random.nextFloat() * 8f
-                    burstParticles.add(SignalParticle(
-                        x = 0f, y = 0f, // will be offset by cx/cy in draw
-                        vx = kotlin.math.cos(a) * spd,
-                        vy = kotlin.math.sin(a) * spd,
-                        alpha = 1f, radius = 2f + kotlin.random.Random.nextFloat() * 4f,
-                        life = 1f, decay = 0.018f + kotlin.random.Random.nextFloat() * 0.012f
-                    ))
+            if (!useRealData) {
+                // End calibration: time-based progress (unchanged)
+                val progress = (elapsedMs / durationMs).coerceIn(0f, 1f)
+                statusText = when {
+                    progress < 0.3f -> "Acquiring signal"
+                    progress < 0.65f -> "Locking position"
+                    progress < 0.9f -> "Refining accuracy"
+                    progress < 1f -> "Almost there"
+                    else -> "Locked"
                 }
+                if (progress >= 1f && !burstTriggered) {
+                    burstTriggered = true
+                    for (i in 0..35) {
+                        val a = i * (6.2832f / 36f) + kotlin.random.Random.nextFloat() * 0.15f
+                        val spd = 4f + kotlin.random.Random.nextFloat() * 8f
+                        burstParticles.add(SignalParticle(
+                            x = 0f, y = 0f,
+                            vx = kotlin.math.cos(a) * spd,
+                            vy = kotlin.math.sin(a) * spd,
+                            alpha = 1f, radius = 2f + kotlin.random.Random.nextFloat() * 4f,
+                            life = 1f, decay = 0.018f + kotlin.random.Random.nextFloat() * 0.012f
+                        ))
+                    }
+                }
+            }
+        }
+    }
+
+    // Start calibration: update status from real GPS data
+    if (useRealData) {
+        val rp = realProgress ?: 0f
+        val acc = realAccuracyMeters
+        statusText = when {
+            rp >= 1f -> "Locked"
+            acc == null || acc > 15.0 -> "Acquiring signal"
+            acc > 10.0 -> "Locking position"
+            acc > 6.0 -> "Refining accuracy"
+            acc > 4.0 -> "Almost there"
+            else -> "Locked"
+        }
+        if (rp >= 1f && !burstTriggered) {
+            burstTriggered = true
+            for (i in 0..35) {
+                val a = i * (6.2832f / 36f) + kotlin.random.Random.nextFloat() * 0.15f
+                val spd = 4f + kotlin.random.Random.nextFloat() * 8f
+                burstParticles.add(SignalParticle(
+                    x = 0f, y = 0f,
+                    vx = kotlin.math.cos(a) * spd,
+                    vy = kotlin.math.sin(a) * spd,
+                    alpha = 1f, radius = 2f + kotlin.random.Random.nextFloat() * 4f,
+                    life = 1f, decay = 0.018f + kotlin.random.Random.nextFloat() * 0.012f
+                ))
             }
         }
     }
@@ -563,7 +609,7 @@ private fun CalibratingContent(label: String, onCancel: () -> Unit) {
             val cx = w / 2f
             val cy = h * 0.38f
             val time = frame * 0.016f
-            val progress = (elapsedMs / durationMs).coerceIn(0f, 1f)
+            val progress = if (useRealData) (realProgress ?: 0f) else (elapsedMs / durationMs).coerceIn(0f, 1f)
 
             // Background radial glow — intensifies with progress
             val glowAlpha = 0.14f + progress * 0.10f
@@ -862,14 +908,23 @@ private fun CalibratingContent(label: String, onCancel: () -> Unit) {
             )
             Spacer(Modifier.height(4.dp))
 
-            // Simulated accuracy readout
-            val accuracy = when {
-                burstTriggered -> "\u00B13m"
-                elapsedMs < durationMs * 0.3f -> "\u00B115m"
-                elapsedMs < durationMs * 0.5f -> "\u00B110m"
-                elapsedMs < durationMs * 0.7f -> "\u00B17m"
-                elapsedMs < durationMs * 0.85f -> "\u00B15m"
-                else -> "\u00B14m"
+            // Accuracy readout — real data for start, simulated for end
+            val accuracy = if (useRealData) {
+                val acc = realAccuracyMeters
+                when {
+                    burstTriggered && acc != null -> "\u00B1${acc.toInt()}m"
+                    acc == null -> "\u00B1--m"
+                    else -> "\u00B1${acc.toInt()}m"
+                }
+            } else {
+                when {
+                    burstTriggered -> "\u00B13m"
+                    elapsedMs < durationMs * 0.3f -> "\u00B115m"
+                    elapsedMs < durationMs * 0.5f -> "\u00B110m"
+                    elapsedMs < durationMs * 0.7f -> "\u00B17m"
+                    elapsedMs < durationMs * 0.85f -> "\u00B15m"
+                    else -> "\u00B14m"
+                }
             }
             Text(
                 text = if (isStart) "Hold still at your ball" else "Hold still at landing spot",

@@ -744,7 +744,12 @@ fun WeatherAdjustedDistance(shot: ShotResult, settings: AppSettings) {
 // ── Share Shot Button ───────────────────────────────────────────────────────
 
 @Composable
-fun ShareShotButton(shot: ShotResult, settings: AppSettings, shotHistory: List<ShotResult>) {
+fun ShareShotButton(
+    shot: ShotResult,
+    settings: AppSettings,
+    shotHistory: List<ShotResult>,
+    onShared: () -> Unit = {}
+) {
     val context = LocalContext.current
     Row(
         modifier = Modifier
@@ -759,6 +764,7 @@ fun ShareShotButton(shot: ShotResult, settings: AppSettings, shotHistory: List<S
                         shotHistory = shotHistory
                     )
                     ShareUtil.shareShotCard(context, bitmap)
+                    onShared()
                 } catch (e: Exception) {
                     android.util.Log.e("ShareShotButton", "Failed to share shot card", e)
                     android.widget.Toast.makeText(context, "Failed to share shot card", android.widget.Toast.LENGTH_SHORT).show()

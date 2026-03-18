@@ -41,3 +41,7 @@
 # Only keep Credentials API classes needed for Google Sign-in via Credential Manager.
 -keep class androidx.credentials.** { *; }
 -keep class com.google.android.libraries.identity.googleid.** { *; }
+
+# ── Firebase Crashlytics ─────────────────────────────────────────────────
+# Keep Crashlytics deobfuscation info
+-keepattributes *Annotation*

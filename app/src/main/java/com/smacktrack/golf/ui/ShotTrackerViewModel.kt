@@ -121,6 +121,8 @@ data class ShotTrackerUiState(
     val unlockedAchievements: Map<String, Long> = emptyMap(),
     val newlyUnlockedAchievements: List<UnlockedAchievement> = emptyList(),
     val gpsAccuracyMeters: Double? = null,
+    val calibrationAccuracyMeters: Double? = null,
+    val calibrationProgress: Float = 0f,
     val accountDeleted: Boolean = false
 )
 
@@ -128,7 +130,7 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
 
     private val repository = ShotRepository(application)
     private val achievementRepository = AchievementRepository(application)
-    private val analyticsTracker = AnalyticsTracker(FirebaseAnalytics.getInstance(application))
+    val analyticsTracker = AnalyticsTracker(FirebaseAnalytics.getInstance(application))
     var authManager: AuthManager? = null
         set(value) {
             field?.cleanup()
@@ -180,19 +182,23 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
                 }
                 if (user != null) {
                     toast("Signed in as ${user.email}")
+                    analyticsTracker.logSignIn()
                     // Migrate local data on first sign-in.
                     // Use NonCancellable so a rapid auth re-emission can't leave
                     // migration half-done (data uploaded but local not yet cleared).
                     _uiState.update { it.copy(syncStatus = SyncStatus.SYNCING) }
+                    val localCount = repository.localShotCount()
                     try {
                         withContext(NonCancellable) {
                             repository.migrateLocalToFirestore()
                             achievementRepository.migrateLocalToFirestore()
                         }
+                        analyticsTracker.logMigration(localCount, success = true)
                         toast("Local data migrated to cloud")
                         _uiState.update { it.copy(syncStatus = SyncStatus.SYNCED) }
                     } catch (e: Exception) {
                         Log.e("ShotTrackerVM", "Migration failed", e)
+                        analyticsTracker.logMigration(localCount, success = false)
                         toast("Migration failed. Please try again.")
                         _uiState.update { it.copy(syncStatus = SyncStatus.ERROR) }
                     }
@@ -259,14 +265,21 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
     private var locationJob: Job? = null
     private var shotTimeoutJob: Job? = null
 
-    // Calibration: start = 3.5s (7 samples), end = 2s (4 samples) at 500ms intervals
+    // Calibration: start = adaptive 2-7s based on GPS accuracy, end = 2s fixed
     // End calibration is shorter because GPS has been streaming during the walk.
     private companion object {
-        const val CALIBRATION_DURATION_MS = 3500L
+        const val CALIBRATION_MIN_MS = 2000L        // Always wait at least 2s
+        const val CALIBRATION_MAX_MS = 7000L        // Never wait more than 7s
         const val END_CALIBRATION_DURATION_MS = 2000L
         const val CALIBRATION_INTERVAL_MS = 500L
         const val GPS_WARMUP_TIMEOUT_MS = 5000L
         const val SHOT_TIMEOUT_MS = 15 * 60 * 1000L
+
+        // Adaptive calibration thresholds
+        const val TARGET_ACCURACY_METERS = 8.0      // Individual sample accuracy target
+        const val EXCELLENT_ACCURACY_METERS = 4.0   // Exit faster with excellent GPS
+        const val MAX_POSITION_SPREAD_METERS = 3.0  // Position convergence threshold
+        const val MIN_CONVERGED_SAMPLES = 3         // Need this many good samples in a row
     }
 
     fun onPermissionResult(granted: Boolean) {
@@ -309,7 +322,7 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
      * Collects GPS samples over [durationMs] at [CALIBRATION_INTERVAL_MS] intervals.
      * Returns the collected samples for use with [calibrateWeighted].
      */
-    private suspend fun collectGpsSamples(durationMs: Long = CALIBRATION_DURATION_MS): List<GpsSample> {
+    private suspend fun collectGpsSamples(durationMs: Long): List<GpsSample> {
         val samples = mutableListOf<GpsSample>()
         val endTime = System.currentTimeMillis() + durationMs
 
@@ -326,6 +339,111 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
         }
 
         return samples
+    }
+
+    /**
+     * Adaptive GPS calibration for start position.
+     *
+     * Collects samples for 2-7s, exiting early when GPS accuracy converges:
+     * - Always collects for at least [CALIBRATION_MIN_MS] (GPS cold-start settling)
+     * - Checks convergence: last [MIN_CONVERGED_SAMPLES] samples must all be under
+     *   [TARGET_ACCURACY_METERS] AND their position spread must be < [MAX_POSITION_SPREAD_METERS]
+     * - With excellent accuracy (<4m), exits after minimum time
+     * - Hard cap at [CALIBRATION_MAX_MS] regardless of accuracy
+     * - Updates [ShotTrackerUiState.calibrationAccuracyMeters] and
+     *   [ShotTrackerUiState.calibrationProgress] in real time for UI feedback
+     */
+    private suspend fun collectGpsSamplesAdaptive(): List<GpsSample> {
+        val samples = mutableListOf<GpsSample>()
+        val startTime = System.currentTimeMillis()
+
+        while (true) {
+            val snap = gpsState
+            if (snap.lat != 0.0 || snap.lon != 0.0) {
+                samples.add(
+                    GpsSample(
+                        lat = snap.lat,
+                        lon = snap.lon,
+                        accuracyMeters = snap.accuracy
+                    )
+                )
+            }
+
+            val elapsed = System.currentTimeMillis() - startTime
+            val timeProgress = (elapsed.toFloat() / CALIBRATION_MAX_MS).coerceIn(0f, 1f)
+
+            // Compute accuracy-based progress from recent samples
+            val accuracyProgress = if (samples.size >= 2) {
+                val recentAccuracy = samples.takeLast(MIN_CONVERGED_SAMPLES)
+                    .map { it.accuracyMeters }
+                    .average()
+                // Map accuracy to progress: 20m+ = 0.2, 8m = 0.7, 4m = 1.0
+                ((20.0 - recentAccuracy) / 16.0).coerceIn(0.1, 1.0).toFloat()
+            } else 0.1f
+
+            // Progress is the better of time-based or accuracy-based
+            val progress = maxOf(timeProgress, accuracyProgress * 0.9f)
+
+            // Update UI with real accuracy data
+            val currentAccuracy = if (samples.isNotEmpty()) samples.last().accuracyMeters else null
+            _uiState.update {
+                it.copy(
+                    calibrationAccuracyMeters = currentAccuracy,
+                    calibrationProgress = progress
+                )
+            }
+
+            // Check convergence after minimum time
+            if (elapsed >= CALIBRATION_MIN_MS && samples.size >= MIN_CONVERGED_SAMPLES + 1) {
+                val recentSamples = samples.takeLast(MIN_CONVERGED_SAMPLES)
+                val allUnderTarget = recentSamples.all { it.accuracyMeters <= TARGET_ACCURACY_METERS }
+
+                if (allUnderTarget) {
+                    // Check position spread — are the recent readings consistent?
+                    val spread = positionSpreadMeters(recentSamples)
+
+                    if (spread < MAX_POSITION_SPREAD_METERS) {
+                        // Excellent accuracy — exit immediately
+                        if (recentSamples.all { it.accuracyMeters <= EXCELLENT_ACCURACY_METERS }) {
+                            _uiState.update { it.copy(calibrationProgress = 1f) }
+                            break
+                        }
+                        // Good accuracy — exit after min time
+                        _uiState.update { it.copy(calibrationProgress = 1f) }
+                        break
+                    }
+                }
+            }
+
+            // Hard timeout
+            if (elapsed >= CALIBRATION_MAX_MS) {
+                _uiState.update { it.copy(calibrationProgress = 1f) }
+                break
+            }
+
+            delay(CALIBRATION_INTERVAL_MS)
+        }
+
+        return samples
+    }
+
+    /**
+     * Computes the maximum distance between any two samples in the list (position spread).
+     * Used to check if GPS readings have converged to a consistent position.
+     */
+    private fun positionSpreadMeters(samples: List<GpsSample>): Double {
+        if (samples.size < 2) return 0.0
+        var maxDist = 0.0
+        for (i in samples.indices) {
+            for (j in i + 1 until samples.size) {
+                val d = haversineMeters(
+                    GpsCoordinate(samples[i].lat, samples[i].lon),
+                    GpsCoordinate(samples[j].lat, samples[j].lon)
+                )
+                if (d > maxDist) maxDist = d
+            }
+        }
+        return maxDist
     }
 
     private fun startTrackingService() {
@@ -367,7 +485,7 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch {
             // Wait for fresh GPS fix before calibrating (stale coords were cleared on reset)
             waitForFreshGps()
-            val samples = collectGpsSamples()
+            val samples = collectGpsSamplesAdaptive()
             val calibrated = calibrateWeighted(samples)
 
             val snap = gpsState
@@ -376,6 +494,7 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
                     GpsCoordinate(snap.lat, snap.lon)
                 } else {
                     // No valid GPS position — abort and return to club select
+                    analyticsTracker.logGpsError("no_fix_on_start")
                     toast("Could not get GPS position. Try again in an open area.")
                     _uiState.update { it.copy(phase = ShotPhase.CLUB_SELECT) }
                     stopLocationUpdates()
@@ -458,6 +577,7 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
                     GpsCoordinate(endSnap.lat, endSnap.lon)
                 } else {
                     // No valid GPS — fall back to start coord (0 distance shot)
+                    analyticsTracker.logGpsError("signal_lost_on_end")
                     toast("GPS signal lost. Distance may be inaccurate.")
                     startCoord
                 }
@@ -467,6 +587,7 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
 
             // Clamp implausible distances (NaN, infinite, or >500 yards)
             if (distanceYards.isNaN() || distanceYards.isInfinite()) {
+                analyticsTracker.logGpsError("nan_distance")
                 toast("GPS reading error. Distance could not be calculated.")
                 distanceYards = 0.0
                 distanceMeters = 0.0
@@ -508,6 +629,7 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
 
             // Log analytics event first (no PII/location data)
             analyticsTracker.logShot(result)
+            analyticsTracker.setUserProperties(_uiState.value.settings, _uiState.value.shotHistory.size + 1)
 
             // Update UI immediately — don't block on network
             var updatedHistory: List<ShotResult> = emptyList()
@@ -565,6 +687,7 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
 
     fun changeResultClub(club: Club) {
         val capturedUid = repository.snapshotUid()
+        val previousClub = _uiState.value.shotResult?.club?.name ?: "unknown"
         var updatedResult: ShotResult? = null
         var updatedHistory: List<ShotResult> = emptyList()
         _uiState.update { state ->
@@ -578,6 +701,7 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
             state.copy(shotResult = updated, shotHistory = history)
         }
         persistShots(updatedHistory)
+        analyticsTracker.logClubChanged(previousClub, club.name)
         if (capturedUid != null) {
             updatedResult?.let { result ->
                 firestoreSync { repository.updateShot(result, forUid = capturedUid) }
@@ -634,7 +758,9 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
                 liveDistanceYards = 0,
                 liveDistanceMeters = 0,
                 shotResult = null,
-                gpsAccuracyMeters = null
+                gpsAccuracyMeters = null,
+                calibrationAccuracyMeters = null,
+                calibrationProgress = 0f
             )
         }
     }
@@ -653,21 +779,25 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
 
     fun updateDistanceUnit(unit: DistanceUnit) {
         _uiState.update { it.copy(settings = it.settings.copy(distanceUnit = unit)) }
+        analyticsTracker.logSettingsChanged("distance_unit", unit.name)
         persistSettings()
     }
 
     fun updateWindUnit(unit: WindUnit) {
         _uiState.update { it.copy(settings = it.settings.copy(windUnit = unit)) }
+        analyticsTracker.logSettingsChanged("wind_unit", unit.name)
         persistSettings()
     }
 
     fun updateTemperatureUnit(unit: TemperatureUnit) {
         _uiState.update { it.copy(settings = it.settings.copy(temperatureUnit = unit)) }
+        analyticsTracker.logSettingsChanged("temperature_unit", unit.name)
         persistSettings()
     }
 
     fun updateTrajectory(trajectory: Trajectory) {
         _uiState.update { it.copy(settings = it.settings.copy(trajectory = trajectory)) }
+        analyticsTracker.logSettingsChanged("trajectory", trajectory.name)
         persistSettings()
     }
 
@@ -693,6 +823,7 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
             it.copy(shotHistory = filtered)
         }
         persistShots(updatedHistory)
+        analyticsTracker.logShotDeleted()
         toast("Shot deleted" + if (_uiState.value.isSignedIn) " from cloud" else " locally")
         if (capturedUid != null) {
             firestoreSync { repository.deleteShot(timestampMs, forUid = capturedUid) }
@@ -780,6 +911,7 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
         settingsCollectionJob?.cancel()
         achievementsCollectionJob?.cancel()
         viewModelScope.launch {
+            analyticsTracker.logSignOut()
             auth.signOut()
             // Reload local data after sign-out (now populated from snapshot above)
             val localShots = repository.loadShots()

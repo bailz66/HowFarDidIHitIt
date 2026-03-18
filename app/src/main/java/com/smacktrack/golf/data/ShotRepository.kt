@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
 
 class ShotRepository(context: Context) {
@@ -27,6 +28,10 @@ class ShotRepository(context: Context) {
     private val firestore = FirebaseFirestore.getInstance()
 
     private val uid: String? get() = FirebaseAuth.getInstance().currentUser?.uid
+
+    private companion object {
+        const val FIRESTORE_TIMEOUT_MS = 10_000L
+    }
 
     fun snapshotUid(): String? = uid
 
@@ -65,11 +70,13 @@ class ShotRepository(context: Context) {
     suspend fun saveShot(shot: ShotResult, forUid: String? = null) {
         val currentUid = forUid ?: uid
         if (currentUid != null) {
-            firestore.collection("users").document(currentUid)
-                .collection("shots")
-                .document(shot.timestampMs.toString())
-                .set(shot.toFirestoreMap())
-                .await()
+            withTimeout(FIRESTORE_TIMEOUT_MS) {
+                firestore.collection("users").document(currentUid)
+                    .collection("shots")
+                    .document(shot.timestampMs.toString())
+                    .set(shot.toFirestoreMap())
+                    .await()
+            }
         } else {
             val shots = loadShotsFromPrefs() + shot
             saveShotsToPrefs(shots)
@@ -79,13 +86,15 @@ class ShotRepository(context: Context) {
     suspend fun deleteShot(timestampMs: Long, forUid: String? = null) {
         val currentUid = forUid ?: uid
         if (currentUid != null) {
-            val query = firestore.collection("users").document(currentUid)
-                .collection("shots")
-                .whereEqualTo("timestampMs", timestampMs)
-                .get()
-                .await()
-            for (doc in query.documents) {
-                doc.reference.delete().await()
+            withTimeout(FIRESTORE_TIMEOUT_MS) {
+                val query = firestore.collection("users").document(currentUid)
+                    .collection("shots")
+                    .whereEqualTo("timestampMs", timestampMs)
+                    .get()
+                    .await()
+                for (doc in query.documents) {
+                    doc.reference.delete().await()
+                }
             }
         } else {
             val shots = loadShotsFromPrefs().filter { it.timestampMs != timestampMs }
@@ -100,13 +109,15 @@ class ShotRepository(context: Context) {
     suspend fun updateShot(shot: ShotResult, forUid: String? = null) {
         val currentUid = forUid ?: uid
         if (currentUid != null) {
-            val query = firestore.collection("users").document(currentUid)
-                .collection("shots")
-                .whereEqualTo("timestampMs", shot.timestampMs)
-                .get()
-                .await()
-            for (doc in query.documents) {
-                doc.reference.set(shot.toFirestoreMap()).await()
+            withTimeout(FIRESTORE_TIMEOUT_MS) {
+                val query = firestore.collection("users").document(currentUid)
+                    .collection("shots")
+                    .whereEqualTo("timestampMs", shot.timestampMs)
+                    .get()
+                    .await()
+                for (doc in query.documents) {
+                    doc.reference.set(shot.toFirestoreMap()).await()
+                }
             }
         }
         // SharedPrefs path: caller manages the full list via saveShots()
@@ -117,18 +128,19 @@ class ShotRepository(context: Context) {
     suspend fun incrementGlobalShotCount() {
         if (uid == null) return
         try {
-            firestore.document("stats/global")
-                .update("totalShots", FieldValue.increment(1))
-                .await()
-        } catch (e: Exception) {
-            // Document doesn't exist yet — create with increment to avoid race conditions
-            try {
-                firestore.document("stats/global")
-                    .set(mapOf("totalShots" to FieldValue.increment(1)), SetOptions.merge())
-                    .await()
-            } catch (e2: Exception) {
-                Log.w("ShotRepository", "Failed to increment global shot count", e2)
+            withTimeout(FIRESTORE_TIMEOUT_MS) {
+                try {
+                    firestore.document("stats/global")
+                        .update("totalShots", FieldValue.increment(1))
+                        .await()
+                } catch (e: Exception) {
+                    firestore.document("stats/global")
+                        .set(mapOf("totalShots" to FieldValue.increment(1)), SetOptions.merge())
+                        .await()
+                }
             }
+        } catch (e: Exception) {
+            Log.w("ShotRepository", "Failed to increment global shot count", e)
         }
     }
 
@@ -161,10 +173,12 @@ class ShotRepository(context: Context) {
 
     suspend fun saveSettingsToFirestore(settings: AppSettings, forUid: String? = null) {
         val currentUid = forUid ?: uid ?: return
-        firestore.collection("users").document(currentUid)
-            .collection("settings").document("prefs")
-            .set(settings.toFirestoreMap())
-            .await()
+        withTimeout(FIRESTORE_TIMEOUT_MS) {
+            firestore.collection("users").document(currentUid)
+                .collection("settings").document("prefs")
+                .set(settings.toFirestoreMap())
+                .await()
+        }
     }
 
     fun saveSettings(settings: AppSettings) {
@@ -174,46 +188,72 @@ class ShotRepository(context: Context) {
     // ── Account deletion ────────────────────────────────────────────────────
 
     suspend fun deleteAllUserData(forUid: String) {
-        val userDoc = firestore.collection("users").document(forUid)
-        // Delete shots subcollection
-        val shots = userDoc.collection("shots").get().await()
-        for (doc in shots.documents) { doc.reference.delete().await() }
-        // Delete settings subcollection
-        val settings = userDoc.collection("settings").get().await()
-        for (doc in settings.documents) { doc.reference.delete().await() }
-        // Delete achievements subcollection
-        val achievements = userDoc.collection("achievements").get().await()
-        for (doc in achievements.documents) { doc.reference.delete().await() }
-        // Delete user document itself
-        userDoc.delete().await()
+        withTimeout(30_000L) {
+            val userDoc = firestore.collection("users").document(forUid)
+            // Delete subcollections in batches to avoid OOM with large datasets
+            deleteCollection(userDoc.collection("shots"))
+            deleteCollection(userDoc.collection("settings"))
+            deleteCollection(userDoc.collection("achievements"))
+            // Delete user document itself
+            userDoc.delete().await()
+        }
+    }
+
+    private suspend fun deleteCollection(collection: com.google.firebase.firestore.CollectionReference) {
+        var batch = firestore.batch()
+        var count = 0
+        var snapshot = collection.limit(500).get().await()
+        while (snapshot.documents.isNotEmpty()) {
+            for (doc in snapshot.documents) {
+                batch.delete(doc.reference)
+                count++
+                if (count >= 500) {
+                    batch.commit().await()
+                    batch = firestore.batch()
+                    count = 0
+                }
+            }
+            if (count > 0) {
+                batch.commit().await()
+                batch = firestore.batch()
+                count = 0
+            }
+            snapshot = collection.limit(500).get().await()
+        }
     }
 
     // ── Migration ────────────────────────────────────────────────────────────
+
+    fun localShotCount(): Int = loadShotsFromPrefs().size
 
     suspend fun migrateLocalToFirestore() {
         val currentUid = uid ?: return
 
         val localShots = loadShotsFromPrefs()
         if (localShots.isNotEmpty()) {
-            val shotsRef = firestore.collection("users").document(currentUid)
-                .collection("shots")
-            for (chunk in localShots.chunked(500)) {
-                val batch = firestore.batch()
-                chunk.forEach { shot ->
-                    batch.set(shotsRef.document(shot.timestampMs.toString()), shot.toFirestoreMap())
+            withTimeout(30_000L) {
+                val shotsRef = firestore.collection("users").document(currentUid)
+                    .collection("shots")
+                for (chunk in localShots.chunked(500)) {
+                    val batch = firestore.batch()
+                    chunk.forEach { shot ->
+                        batch.set(shotsRef.document(shot.timestampMs.toString()), shot.toFirestoreMap())
+                    }
+                    batch.commit().await()
                 }
-                batch.commit().await()
             }
             // Clear local shots after successful upload to prevent divergent data
             prefs.edit().remove("shot_history").apply()
         }
 
         // Settings are always synced (idempotent)
-        val localSettings = loadSettingsFromPrefs()
-        firestore.collection("users").document(currentUid)
-            .collection("settings").document("prefs")
-            .set(localSettings.toFirestoreMap())
-            .await()
+        withTimeout(FIRESTORE_TIMEOUT_MS) {
+            val localSettings = loadSettingsFromPrefs()
+            firestore.collection("users").document(currentUid)
+                .collection("settings").document("prefs")
+                .set(localSettings.toFirestoreMap())
+                .await()
+        }
     }
 
     // ── SharedPreferences (local) ────────────────────────────────────────────
