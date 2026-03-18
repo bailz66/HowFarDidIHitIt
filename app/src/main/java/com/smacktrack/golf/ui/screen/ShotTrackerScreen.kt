@@ -908,7 +908,7 @@ private fun CalibratingContent(
             )
             Spacer(Modifier.height(4.dp))
 
-            // Accuracy readout — real data for start, simulated for end
+            // Accuracy readout — real GPS data for start, hidden for end (2s is too short for meaningful display)
             val accuracy = if (useRealData) {
                 val acc = realAccuracyMeters
                 when {
@@ -916,28 +916,22 @@ private fun CalibratingContent(
                     acc == null -> "\u00B1--m"
                     else -> "\u00B1${acc.toInt()}m"
                 }
-            } else {
-                when {
-                    burstTriggered -> "\u00B13m"
-                    elapsedMs < durationMs * 0.3f -> "\u00B115m"
-                    elapsedMs < durationMs * 0.5f -> "\u00B110m"
-                    elapsedMs < durationMs * 0.7f -> "\u00B17m"
-                    elapsedMs < durationMs * 0.85f -> "\u00B15m"
-                    else -> "\u00B14m"
-                }
-            }
+            } else null
+
             Text(
                 text = if (isStart) "Hold still at your ball" else "Hold still at landing spot",
                 style = MaterialTheme.typography.bodyMedium,
                 color = TextSecondary
             )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                text = "Accuracy: $accuracy",
-                style = MaterialTheme.typography.labelSmall,
-                color = if (burstTriggered) DarkGreen else TextTertiary,
-                fontWeight = if (burstTriggered) FontWeight.Bold else FontWeight.Normal
-            )
+            if (accuracy != null) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = "Accuracy: $accuracy",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (burstTriggered) DarkGreen else TextTertiary,
+                    fontWeight = if (burstTriggered) FontWeight.Bold else FontWeight.Normal
+                )
+            }
 
             Spacer(Modifier.weight(0.35f))
 
