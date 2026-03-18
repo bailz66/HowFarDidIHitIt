@@ -131,11 +131,13 @@ class ShotSerializationTest {
         )
         val map = settings.toFirestoreMap()
 
-        assertEquals(6, map.size)
+        assertEquals(7, map.size)
         assertEquals("METERS", map["distanceUnit"])
         assertEquals("KMH", map["windUnit"])
         assertEquals("CELSIUS", map["temperatureUnit"])
         assertEquals("HIGH", map["trajectory"])
+        assertEquals(true, map["analyticsEnabled"])
+        assertEquals(1, map["schemaVersion"])
         @Suppress("UNCHECKED_CAST")
         val clubs = map["enabledClubs"] as List<String>
         assertTrue(clubs.contains("DRIVER"))

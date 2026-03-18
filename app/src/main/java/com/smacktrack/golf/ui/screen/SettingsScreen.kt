@@ -84,6 +84,7 @@ fun SettingsScreen(
     onTemperatureUnitChanged: (TemperatureUnit) -> Unit,
     onTrajectoryChanged: (Trajectory) -> Unit,
     onClubToggled: (Club) -> Unit,
+    onAnalyticsToggled: (Boolean) -> Unit = {},
     isSignedIn: Boolean = false,
     userEmail: String? = null,
     syncStatus: SyncStatus = SyncStatus.IDLE,
@@ -313,6 +314,43 @@ fun SettingsScreen(
                     color = TextSecondary
                 )
             }
+        }
+
+        Spacer(Modifier.height(28.dp))
+        HorizontalDivider(color = MidGray)
+        Spacer(Modifier.height(28.dp))
+
+        // ── Analytics ─────────────────────────────────────
+        SectionHeader("PRIVACY")
+        Spacer(Modifier.height(12.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .clickable { onAnalyticsToggled(!settings.analyticsEnabled) }
+                .padding(vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Usage analytics",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    text = "Help improve SmackTrack with anonymous usage data",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextTertiary
+                )
+            }
+            Text(
+                text = if (settings.analyticsEnabled) "ON" else "OFF",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = if (settings.analyticsEnabled) DarkGreen else TextTertiary,
+                modifier = Modifier.padding(start = 16.dp)
+            )
         }
 
         Spacer(Modifier.height(28.dp))

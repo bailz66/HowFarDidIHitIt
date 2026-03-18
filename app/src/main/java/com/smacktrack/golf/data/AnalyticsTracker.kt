@@ -9,6 +9,10 @@ import com.smacktrack.golf.ui.ShotResult
 
 class AnalyticsTracker(private val analytics: FirebaseAnalytics) {
 
+    fun setEnabled(enabled: Boolean) {
+        analytics.setAnalyticsCollectionEnabled(enabled)
+    }
+
     fun logShot(result: ShotResult) {
         try {
             analytics.logEvent("shot_tracked") {

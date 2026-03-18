@@ -28,7 +28,7 @@
 
 <h1>SmackTrack Privacy Policy</h1>
 <p class="subtitle">Golf Shot Distance Tracker</p>
-<p class="updated">Last updated: March 1, 2026</p>
+<p class="updated">Last updated: March 18, 2026</p>
 
 <h2>What the app does</h2>
 <p>SmackTrack uses your phone's GPS to measure how far you hit a golf ball. That's it.</p>
@@ -68,7 +68,21 @@
 <ul>
     <li>The app uses <strong>Firebase Analytics</strong> to collect anonymized, aggregated usage data such as shot counts and achievement unlocks.</li>
     <li>Firebase Analytics does not collect personally identifiable information. No GPS coordinates, shot distances, or user content is sent to analytics.</li>
-    <li>This data helps us understand how the app is used so we can improve it. You can opt out of Firebase Analytics through your device's Google settings.</li>
+    <li>This data helps us understand how the app is used so we can improve it.</li>
+    <li><strong>You can opt out</strong> of analytics collection at any time via the <em>Usage analytics</em> toggle in the app's Settings screen, or through your device's Google settings.</li>
+    <li>Analytics data is retained per Google's standard retention policy (14 months for event data, 2 months for user-level data). Anonymized aggregate data may be retained indefinitely.</li>
+</ul>
+
+<h2>App integrity</h2>
+<ul>
+    <li>The app uses <strong>Firebase App Check</strong> with the Google Play Integrity API to verify that requests to our cloud services come from the genuine SmackTrack app.</li>
+    <li>This protects against API abuse and does not collect personal data. No additional information about you is shared through this process.</li>
+</ul>
+
+<h2>Crash reporting</h2>
+<ul>
+    <li>The app uses <strong>Firebase Crashlytics</strong> to collect anonymous crash reports, including stack traces and device information (model, OS version).</li>
+    <li>Crash reports do not contain personal data, GPS coordinates, or shot history. They are used solely to identify and fix bugs.</li>
 </ul>
 
 <h2>Third-party services</h2>
@@ -77,7 +91,9 @@
     <li><strong>Open-Meteo</strong> &mdash; weather data (approximate coordinates sent for weather lookup).</li>
     <li><strong>Firebase Authentication</strong> &mdash; optional Google Sign-in (only if you choose to sign in).</li>
     <li><strong>Firebase Cloud Firestore</strong> &mdash; optional cloud sync (only if signed in).</li>
-    <li><strong>Firebase Analytics</strong> &mdash; anonymized usage data (no PII, no location data).</li>
+    <li><strong>Firebase Analytics</strong> &mdash; anonymized usage data (no PII, no location data). Can be disabled in Settings.</li>
+    <li><strong>Firebase Crashlytics</strong> &mdash; anonymous crash reports for bug fixing.</li>
+    <li><strong>Firebase App Check</strong> &mdash; app integrity verification via Google Play Integrity API.</li>
 </ul>
 <p>No advertising networks or social media SDKs are included in the app.</p>
 

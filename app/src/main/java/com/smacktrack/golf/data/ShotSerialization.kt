@@ -63,6 +63,7 @@ internal fun AppSettings.toFirestoreMap(): Map<String, Any> = mapOf(
     "temperatureUnit" to temperatureUnit.name,
     "trajectory" to trajectory.name,
     "enabledClubs" to enabledClubs.map { it.name },
+    "analyticsEnabled" to analyticsEnabled,
     "schemaVersion" to 1
 )
 

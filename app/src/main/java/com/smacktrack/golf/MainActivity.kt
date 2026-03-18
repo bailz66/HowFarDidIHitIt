@@ -459,6 +459,7 @@ fun SmackTrackApp(viewModel: ShotTrackerViewModel) {
                 onTemperatureUnitChanged = viewModel::updateTemperatureUnit,
                 onTrajectoryChanged = viewModel::updateTrajectory,
                 onClubToggled = viewModel::toggleClub,
+                onAnalyticsToggled = viewModel::toggleAnalytics,
                 isSignedIn = uiState.isSignedIn,
                 userEmail = uiState.userEmail,
                 syncStatus = uiState.syncStatus,

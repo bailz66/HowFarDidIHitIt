@@ -101,7 +101,8 @@ data class AppSettings(
     val windUnit: WindUnit = WindUnit.MPH,
     val temperatureUnit: TemperatureUnit = TemperatureUnit.FAHRENHEIT,
     val trajectory: Trajectory = Trajectory.MID,
-    val enabledClubs: Set<Club> = Club.entries.toSet()
+    val enabledClubs: Set<Club> = Club.entries.toSet(),
+    val analyticsEnabled: Boolean = true
 )
 
 data class ShotTrackerUiState(
@@ -159,6 +160,8 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
         val savedShots = repository.loadShots()
         val savedSettings = repository.loadSettings()
         val savedAchievements = achievementRepository.loadUnlocked()
+        // Apply saved analytics preference on startup
+        analyticsTracker.setEnabled(savedSettings.analyticsEnabled)
         _uiState.update {
             it.copy(
                 shotHistory = savedShots,
@@ -809,6 +812,12 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
             val updated = if (club in current) current - club else current + club
             it.copy(settings = it.settings.copy(enabledClubs = updated))
         }
+        persistSettings()
+    }
+
+    fun toggleAnalytics(enabled: Boolean) {
+        _uiState.update { it.copy(settings = it.settings.copy(analyticsEnabled = enabled)) }
+        analyticsTracker.setEnabled(enabled)
         persistSettings()
     }
 

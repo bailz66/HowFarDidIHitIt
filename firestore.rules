@@ -68,7 +68,7 @@ service cloud.firestore {
     function isValidSettings(data) {
       return data.keys().hasOnly([
         'distanceUnit', 'windUnit', 'temperatureUnit',
-        'trajectory', 'enabledClubs'
+        'trajectory', 'enabledClubs', 'analyticsEnabled', 'schemaVersion'
       ])
       && data.distanceUnit is string
       && data.windUnit is string

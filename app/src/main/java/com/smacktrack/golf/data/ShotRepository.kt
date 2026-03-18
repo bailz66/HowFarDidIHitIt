@@ -297,7 +297,8 @@ class ShotRepository(context: Context) {
                 trajectory = prefs.getString("trajectory", null)
                     ?.let { enumValueOfOrNull<Trajectory>(it) }
                     ?: Trajectory.MID,
-                enabledClubs = loadEnabledClubs()
+                enabledClubs = loadEnabledClubs(),
+                analyticsEnabled = prefs.getBoolean("analytics_enabled", true)
             )
         } catch (e: Exception) {
             Log.e("ShotRepository", "Failed to load settings", e)
@@ -314,6 +315,7 @@ class ShotRepository(context: Context) {
             .putString("enabled_clubs", JSONArray().apply {
                 settings.enabledClubs.forEach { put(it.name) }
             }.toString())
+            .putBoolean("analytics_enabled", settings.analyticsEnabled)
             .apply()
     }
 
