@@ -78,8 +78,8 @@ object WeatherService {
             root.optJSONObject("current")?.let { current ->
                 val temp = current.optDouble("temperature_2m", 0.0)
                 val wind = current.optDouble("wind_speed_10m", 0.0)
-                // Guard against NaN from malformed JSON values
-                if (temp.isNaN() || wind.isNaN()) return@let null
+                // Guard against NaN/Infinity from malformed JSON values
+                if (temp.isNaN() || temp.isInfinite() || wind.isNaN() || wind.isInfinite()) return@let null
                 WeatherData(
                     temperatureCelsius = temp,
                     weatherCode = current.optInt("weather_code", -1),

@@ -50,7 +50,7 @@ service cloud.firestore {
         'club', 'distanceYards', 'distanceMeters',
         'weatherDescription', 'temperatureF', 'temperatureC',
         'windSpeedKmh', 'windDirectionCompass', 'windDirectionDegrees',
-        'shotBearingDegrees', 'timestampMs'
+        'shotBearingDegrees', 'timestampMs', 'schemaVersion'
       ])
       && data.club is string && data.club.size() <= 30
       && data.distanceYards is int && data.distanceYards >= 0 && data.distanceYards <= 1000
@@ -59,7 +59,7 @@ service cloud.firestore {
       && data.temperatureF is int
       && data.temperatureC is int
       && data.windSpeedKmh is number
-      && data.windDirectionDegrees is int
+      && data.windDirectionDegrees is int && data.windDirectionDegrees >= 0 && data.windDirectionDegrees <= 359
       && data.shotBearingDegrees is number
       && data.timestampMs is int;
     }
