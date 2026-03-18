@@ -10,7 +10,11 @@ import com.smacktrack.golf.ui.ShotResult
 class AnalyticsTracker(private val analytics: FirebaseAnalytics) {
 
     fun setEnabled(enabled: Boolean) {
-        analytics.setAnalyticsCollectionEnabled(enabled)
+        try {
+            analytics.setAnalyticsCollectionEnabled(enabled)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to toggle analytics collection", e)
+        }
     }
 
     fun logShot(result: ShotResult) {
