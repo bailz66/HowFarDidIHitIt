@@ -28,7 +28,7 @@
 
 <h1>SmackTrack Privacy Policy</h1>
 <p class="subtitle">Golf Shot Distance Tracker</p>
-<p class="updated">Last updated: February 22, 2026</p>
+<p class="updated">Last updated: March 18, 2026</p>
 
 <h2>What the app does</h2>
 <p>SmackTrack uses your phone's GPS to measure how far you hit a golf ball. That's it.</p>
@@ -36,7 +36,8 @@
 <h2>Location data</h2>
 <ul>
     <li>GPS is used <strong>only</strong> to calculate the distance between your start and end positions on the golf course.</li>
-    <li>Your coordinates are <strong>never transmitted, uploaded, or shared</strong> with any server or third party.</li>
+    <li>A foreground service with a visible notification keeps GPS active while you walk to your ball, even if the screen locks. The service runs only during active shot tracking and stops automatically when the shot completes or after 15 minutes.</li>
+    <li>Your coordinates are sent to the <a href="https://open-meteo.com/">Open-Meteo</a> weather API to fetch wind and temperature conditions (see Weather data below). <strong>No other service receives your location.</strong></li>
     <li>Raw GPS coordinates are not stored. Only the calculated distance in yards/meters is saved to your shot history.</li>
 </ul>
 
@@ -44,29 +45,67 @@
 <ul>
     <li>When a shot is recorded, the app sends your approximate location to the <a href="https://open-meteo.com/">Open-Meteo</a> weather API to fetch current wind and temperature conditions.</li>
     <li>Open-Meteo is a free, open-source weather API. Their privacy policy is available on their website.</li>
-    <li>No other network requests are made by the app.</li>
+</ul>
+
+<h2>Optional Google Sign-in &amp; cloud sync</h2>
+<ul>
+    <li>You can <strong>optionally</strong> sign in with your Google account to sync shot history, settings, and achievements across devices.</li>
+    <li>If you sign in, your data is stored in <a href="https://firebase.google.com/">Google Firebase</a> Cloud Firestore, scoped to your account. Only you can access your data.</li>
+    <li>We store your email address solely to identify your account. We do not share it with any third party.</li>
+    <li>If you do not sign in, all data stays on your device only. The app is fully functional without an account.</li>
+    <li>You can sign out at any time in Settings. Your data remains available locally after sign-out.</li>
 </ul>
 
 <h2>Data stored on your device</h2>
 <ul>
     <li><strong>Shot history:</strong> Club used, distance, weather conditions, and timestamp.</li>
     <li><strong>Settings:</strong> Your preferred units (yards/meters, mph/km/h, &deg;F/&deg;C), trajectory, and club selections.</li>
-    <li>All data is stored locally on your device using Android SharedPreferences.</li>
-    <li>No data is stored on external servers or in the cloud.</li>
+    <li><strong>Achievements:</strong> Unlocked achievement badges and unlock timestamps.</li>
+    <li>All data is stored locally using Android SharedPreferences. If you opt in to cloud sync, a copy is also stored in Firestore (see above).</li>
 </ul>
 
-<h2>Data we collect</h2>
-<p><strong>None.</strong> We do not collect, track, or transmit any personal information. There are no analytics, no advertising SDKs, no user accounts, and no telemetry.</p>
+<h2>Analytics</h2>
+<ul>
+    <li>The app uses <strong>Firebase Analytics</strong> to collect anonymized, aggregated usage data such as shot counts and achievement unlocks.</li>
+    <li>Firebase Analytics does not collect personally identifiable information. No GPS coordinates, shot distances, or user content is sent to analytics.</li>
+    <li>This data helps us understand how the app is used so we can improve it.</li>
+    <li><strong>You can opt out</strong> of analytics collection at any time via the <em>Usage analytics</em> toggle in the app's Settings screen, or through your device's Google settings.</li>
+    <li>Analytics data is retained per Google's standard retention policy (14 months for event data, 2 months for user-level data). Anonymized aggregate data may be retained indefinitely.</li>
+</ul>
+
+<h2>App integrity</h2>
+<ul>
+    <li>The app uses <strong>Firebase App Check</strong> with the Google Play Integrity API to verify that requests to our cloud services come from the genuine SmackTrack app.</li>
+    <li>This protects against API abuse and does not collect personal data. No additional information about you is shared through this process.</li>
+</ul>
+
+<h2>Crash reporting</h2>
+<ul>
+    <li>The app uses <strong>Firebase Crashlytics</strong> to collect anonymous crash reports, including stack traces and device information (model, OS version).</li>
+    <li>Crash reports do not contain personal data, GPS coordinates, or shot history. They are used solely to identify and fix bugs.</li>
+</ul>
 
 <h2>Third-party services</h2>
 <ul>
-    <li><strong>Open-Meteo</strong> &mdash; weather data only (no personal data sent, just coordinates for the weather lookup).</li>
-    <li><strong>Google Play Services</strong> &mdash; used for GPS location via FusedLocationProviderClient.</li>
+    <li><strong>Google Play Services</strong> &mdash; GPS location via FusedLocationProviderClient.</li>
+    <li><strong>Open-Meteo</strong> &mdash; weather data (approximate coordinates sent for weather lookup).</li>
+    <li><strong>Firebase Authentication</strong> &mdash; optional Google Sign-in (only if you choose to sign in).</li>
+    <li><strong>Firebase Cloud Firestore</strong> &mdash; optional cloud sync (only if signed in).</li>
+    <li><strong>Firebase Analytics</strong> &mdash; anonymized usage data (no PII, no location data). Can be disabled in Settings.</li>
+    <li><strong>Firebase Crashlytics</strong> &mdash; anonymous crash reports for bug fixing.</li>
+    <li><strong>Firebase App Check</strong> &mdash; app integrity verification via Google Play Integrity API.</li>
 </ul>
-<p>No advertising networks, analytics platforms, or social media SDKs are included in the app.</p>
+<p>No advertising networks or social media SDKs are included in the app.</p>
+
+<h2>Data deletion</h2>
+<ul>
+    <li><strong>Delete your account and cloud data:</strong> Open Settings in the app and tap "Delete Account" to permanently remove all cloud data and your Firebase Auth account. See our <a href="data-deletion.html">Data Deletion page</a> for full instructions.</li>
+    <li><strong>Local data:</strong> You can delete individual shots from History, or uninstall the app to remove all local data.</li>
+    <li><strong>Firebase Analytics:</strong> Anonymized analytics data cannot be tied back to you and is automatically retained per Google's standard retention policies.</li>
+</ul>
 
 <h2>Children's privacy</h2>
-<p>The app does not knowingly collect any data from anyone, including children under 13.</p>
+<p>The app does not knowingly collect personal data from anyone, including children under 13.</p>
 
 <h2>Changes to this policy</h2>
 <p>If we update this policy, the changes will be posted on this page with a new "last updated" date.</p>

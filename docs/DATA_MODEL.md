@@ -1,68 +1,137 @@
 # Data Model
 
 ## Overview
-All data is stored locally on-device using Room (SQLite). There is no backend or cloud sync. The database has a single table: `shots`.
+Application state is managed by `ShotTrackerViewModel` and exposed as `StateFlow<ShotTrackerUiState>`. Persistence uses a hybrid approach: SharedPreferences for local storage, Firestore for cloud sync when signed in. The app is offline-first — all features work without internet.
 
-## Shot Entity
+## State Container
 
 ```kotlin
-@Entity(tableName = "shots")
-data class Shot(
-    @PrimaryKey(autoGenerate = true)
-    val id: Long = 0,
-
-    // Start position (calibrated)
-    val startLat: Double,
-    val startLon: Double,
-
-    // End position (calibrated)
-    val endLat: Double,
-    val endLon: Double,
-
-    // Calculated distance
-    val distanceYards: Double,
-    val distanceMeters: Double,
-
-    // Club used
-    val club: String,
-
-    // Weather (nullable — may be unavailable offline)
-    val temperatureF: Double? = null,
-    val temperatureC: Double? = null,
-    val weatherCode: Int? = null,
-    val weatherCondition: String? = null,
-    val windSpeedMph: Double? = null,
-    val windDirectionDegrees: Int? = null,
-    val windDirectionLabel: String? = null,
-
-    // Metadata
-    val timestamp: Long = System.currentTimeMillis()
+data class ShotTrackerUiState(
+    val phase: ShotPhase = ShotPhase.CLUB_SELECT,
+    val selectedClub: Club? = Club.DRIVER,
+    val startCoordinate: GpsCoordinate? = null,
+    val liveDistanceYards: Int = 0,
+    val liveDistanceMeters: Int = 0,
+    val shotResult: ShotResult? = null,
+    val shotHistory: List<ShotResult> = emptyList(),
+    val settings: AppSettings = AppSettings(),
+    val locationPermissionGranted: Boolean = false,
+    val gpsAccuracyMeters: Double? = null,
+    // ... plus additional fields for wind control, achievements, auth state
 )
 ```
 
-## Field Descriptions
+This is the single source of truth for the entire app, exposed as `StateFlow<ShotTrackerUiState>` from the ViewModel.
 
-| Field | Type | Nullable | Description |
-|-------|------|----------|-------------|
-| `id` | Long | No | Auto-generated primary key |
-| `startLat` | Double | No | Calibrated latitude of the start position |
-| `startLon` | Double | No | Calibrated longitude of the start position |
-| `endLat` | Double | No | Calibrated latitude of the end position |
-| `endLon` | Double | No | Calibrated longitude of the end position |
-| `distanceYards` | Double | No | Great-circle distance in yards (Haversine) |
-| `distanceMeters` | Double | No | Great-circle distance in meters (Haversine) |
-| `club` | String | No | Club name (e.g., "Driver", "7 Iron", "Pitching Wedge") |
-| `temperatureF` | Double | Yes | Temperature in Fahrenheit at time of shot |
-| `temperatureC` | Double | Yes | Temperature in Celsius at time of shot |
-| `weatherCode` | Int | Yes | WMO weather code (see Weather doc) |
-| `weatherCondition` | String | Yes | Human-readable weather label (e.g., "Rain", "Clear sky") |
-| `windSpeedMph` | Double | Yes | Wind speed in miles per hour |
-| `windDirectionDegrees` | Int | Yes | Wind direction in degrees (0-360) |
-| `windDirectionLabel` | String | Yes | Compass direction (e.g., "NW", "SSE") |
-| `timestamp` | Long | No | Unix epoch milliseconds when the shot was recorded |
+## Shot Result
 
-## Club Enum
+```kotlin
+data class ShotResult(
+    val club: Club,
+    val distanceYards: Int,
+    val distanceMeters: Int,
+    val weatherDescription: String,
+    val temperatureF: Int,
+    val temperatureC: Int,
+    val windSpeedKmh: Double,
+    val windDirectionCompass: String,
+    val windDirectionDegrees: Int = 0,
+    val shotBearingDegrees: Double = 0.0,
+    val timestampMs: Long = System.currentTimeMillis()
+)
+```
 
+| Field | Type | Description |
+|-------|------|-------------|
+| `club` | Club | The club used for this shot |
+| `distanceYards` | Int | Haversine distance in yards (rounded, clamped 0-500) |
+| `distanceMeters` | Int | Haversine distance in meters (rounded) |
+| `weatherDescription` | String | WMO code mapped to label (e.g., "Clear sky") |
+| `temperatureF` | Int | Temperature in Fahrenheit (rounded) |
+| `temperatureC` | Int | Temperature in Celsius (rounded) |
+| `windSpeedKmh` | Double | Wind speed in km/h |
+| `windDirectionCompass` | String | Compass direction (e.g., "NW", "SE") |
+| `windDirectionDegrees` | Int | Wind direction in degrees (0-360) |
+| `shotBearingDegrees` | Double | Bearing from start to end position |
+| `timestampMs` | Long | Unix epoch milliseconds when the shot was recorded |
+
+## Weather Data
+
+```kotlin
+data class WeatherData(
+    val temperatureCelsius: Double,
+    val weatherCode: Int,
+    val windSpeedKmh: Double,
+    val windDirectionDegrees: Int
+)
+```
+
+Returned by `WeatherService.fetchWeather()`. Maps directly to the Open-Meteo API `current` object fields.
+
+## GPS Data Classes
+
+```kotlin
+data class GpsSample(
+    val lat: Double,
+    val lon: Double,
+    val accuracyMeters: Double,
+    val timestampMs: Long = System.currentTimeMillis()
+)
+
+data class CalibratedPosition(
+    val coordinate: GpsCoordinate,
+    val estimatedAccuracyMeters: Double,
+    val sampleCount: Int
+)
+
+data class LocationUpdate(
+    val lat: Double,
+    val lon: Double,
+    val accuracyMeters: Float,
+    val timestampMs: Long
+)
+
+data class GpsCoordinate(
+    val lat: Double,
+    val lon: Double
+)
+```
+
+| Class | Source | Purpose |
+|-------|--------|---------|
+| `GpsSample` | GPS calibration | Raw sample with accuracy for weighted averaging |
+| `CalibratedPosition` | `calibrateWeighted()` | Final calibrated position with accuracy estimate |
+| `LocationUpdate` | `LocationProvider` | Raw FusedLocation fix emitted via Flow |
+| `GpsCoordinate` | Domain model | Simple lat/lon pair used throughout the app |
+
+## Settings
+
+```kotlin
+data class AppSettings(
+    val distanceUnit: DistanceUnit = DistanceUnit.YARDS,
+    val windUnit: WindUnit = WindUnit.MPH,
+    val temperatureUnit: TemperatureUnit = TemperatureUnit.FAHRENHEIT,
+    val trajectory: Trajectory = Trajectory.MID,
+    val enabledClubs: Set<Club> = Club.entries.toSet()
+)
+```
+
+Settings are persisted to SharedPreferences locally and synced to Firestore when signed in.
+
+## Enums
+
+### Shot Phase
+```kotlin
+enum class ShotPhase {
+    CLUB_SELECT,        // Initial state — pick a club
+    CALIBRATING_START,  // Collecting GPS samples for start position
+    WALKING,            // Live distance tracking
+    CALIBRATING_END,    // Collecting GPS samples for end position
+    RESULT              // Shot result displayed
+}
+```
+
+### Club
 ```kotlin
 enum class Club(val displayName: String, val category: String, val sortOrder: Int) {
     DRIVER("Driver", "Woods", 1),
@@ -88,63 +157,34 @@ enum class Club(val displayName: String, val category: String, val sortOrder: In
 
 The `sortOrder` field ensures clubs always display in natural order: Driver at top, Lob Wedge at bottom.
 
-## DAO (Data Access Object)
+## Data Flow Summary
 
-```kotlin
-@Dao
-interface ShotDao {
-    @Insert
-    suspend fun insert(shot: Shot): Long
-
-    @Query("SELECT * FROM shots ORDER BY timestamp DESC")
-    fun getAllShots(): Flow<List<Shot>>
-
-    @Query("SELECT * FROM shots WHERE club = :club ORDER BY timestamp DESC")
-    fun getShotsByClub(club: String): Flow<List<Shot>>
-
-    @Query("""
-        SELECT club,
-               COUNT(*) as shotCount,
-               AVG(distanceYards) as avgDistance,
-               MIN(distanceYards) as minDistance,
-               MAX(distanceYards) as maxDistance
-        FROM shots
-        GROUP BY club
-    """)
-    fun getClubStats(): Flow<List<ClubStats>>
-
-    @Query("SELECT * FROM shots WHERE timestamp BETWEEN :startTime AND :endTime ORDER BY timestamp DESC")
-    fun getShotsByDateRange(startTime: Long, endTime: Long): Flow<List<Shot>>
-
-    @Query("DELETE FROM shots WHERE id = :shotId")
-    suspend fun deleteShot(shotId: Long)
-}
+```
+GPS Fix → LocationUpdate → GpsSample → calibrateWeighted() → CalibratedPosition
+                                                                    ↓
+                                                              GpsCoordinate
+                                                                    ↓
+                                                         haversineMeters()
+                                                                    ↓
+                                                              ShotResult ← WeatherData
+                                                                    ↓
+                                                         ShotTrackerUiState.shotHistory
 ```
 
-## Analytics Data Classes
+## Persistence
 
-```kotlin
-data class ClubStats(
-    val club: String,
-    val shotCount: Int,
-    val avgDistance: Double,
-    val minDistance: Double,
-    val maxDistance: Double
-)
-```
+### Local Storage (SharedPreferences)
+- Shot history serialized as JSON array via `ShotSerialization.kt`
+- Settings stored as individual key-value pairs
+- Achievement state with migration support
+- Safe deserialization: `optString()`/`optInt()`/`optDouble()` with defaults; per-shot try/catch prevents one corrupt record from losing all data
 
-## Database Migrations
-For v1, no migrations needed. For future versions:
-- Use Room's `@Database(version = N)` with `Migration` objects
-- Never lose user data — always provide migration paths
-- Test migrations with `MigrationTestHelper`
+### Cloud Storage (Firestore)
+When signed in via Google, data syncs to Firestore:
+- `users/{uid}/shots/{timestampMs}` — shot documents
+- `users/{uid}/settings/prefs` — settings document
+- `users/{uid}/achievements/{storageKey}` — achievement documents
+- `stats/global` — increment-only global shot counter
 
-## Indexing
-- Primary key on `id` (automatic)
-- Consider index on `club` if analytics queries become slow (unlikely with < 10k rows)
-- Consider index on `timestamp` for date range queries
-
-## String Storage for i18n
-The `club` field stores the **enum name** (e.g., `"DRIVER"`, `"IRON_7"`), not the display string. This ensures the database is language-independent. The `displayName` is resolved at render time via the enum or a string resource lookup.
-
-Similarly, `weatherCondition` stores the **English label** as a fallback, but the UI can map `weatherCode` to a localized string resource at render time.
+### Security Rules
+User data is isolated by UID. The `stats/global` document allows authenticated increment-only updates. See `firestore.rules` for full policy.

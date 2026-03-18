@@ -1,0 +1,86 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // User data — isolated by UID, schema-validated
+    match /users/{userId} {
+
+      // Shot documents
+      match /shots/{shotId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidShot(request.resource.data);
+        allow delete: if isOwner(userId);
+      }
+
+      // Settings document
+      match /settings/{settingId} {
+        allow read: if isOwner(userId);
+        allow write: if isOwner(userId) && isValidSettings(request.resource.data);
+      }
+
+      // Achievement documents
+      match /achievements/{achievementId} {
+        allow read: if isOwner(userId);
+        allow write: if isOwner(userId) && isValidAchievement(request.resource.data);
+      }
+
+      // Allow deleting the user document itself (account deletion)
+      allow delete: if isOwner(userId);
+    }
+
+    // Global stats counter
+    match /stats/global {
+      allow read: if request.auth != null;
+      allow update: if request.auth != null
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['totalShots'])
+        && request.resource.data.totalShots == resource.data.totalShots + 1;
+      allow create: if request.auth != null
+        && request.resource.data.keys().hasOnly(['totalShots'])
+        && request.resource.data.totalShots == 1;
+    }
+
+    // Helper: check authenticated user owns this data
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    // Validate shot document schema
+    function isValidShot(data) {
+      return data.keys().hasOnly([
+        'club', 'distanceYards', 'distanceMeters',
+        'weatherDescription', 'temperatureF', 'temperatureC',
+        'windSpeedKmh', 'windDirectionCompass', 'windDirectionDegrees',
+        'shotBearingDegrees', 'timestampMs', 'schemaVersion'
+      ])
+      && data.club is string && data.club.size() <= 30
+      && data.distanceYards is int && data.distanceYards >= 0 && data.distanceYards <= 1000
+      && data.distanceMeters is int && data.distanceMeters >= 0 && data.distanceMeters <= 1000
+      && data.weatherDescription is string && data.weatherDescription.size() <= 200
+      && data.temperatureF is int
+      && data.temperatureC is int
+      && data.windSpeedKmh is number
+      && data.windDirectionDegrees is int && data.windDirectionDegrees >= 0 && data.windDirectionDegrees <= 359
+      && data.shotBearingDegrees is number
+      && data.timestampMs is int;
+    }
+
+    // Validate settings document schema
+    function isValidSettings(data) {
+      return data.keys().hasOnly([
+        'distanceUnit', 'windUnit', 'temperatureUnit',
+        'trajectory', 'enabledClubs', 'analyticsEnabled', 'schemaVersion'
+      ])
+      && data.distanceUnit is string
+      && data.windUnit is string
+      && data.temperatureUnit is string
+      && data.trajectory is string
+      && data.enabledClubs is list && data.enabledClubs.size() <= 20;
+    }
+
+    // Validate achievement document schema
+    function isValidAchievement(data) {
+      return data.keys().hasOnly(['unlockedAt'])
+      && data.unlockedAt is int;
+    }
+  }
+}

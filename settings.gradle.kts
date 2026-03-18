@@ -19,6 +19,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "How far did(I hit it"
+rootProject.name = "SmackTrack"
 include(":app")
  
