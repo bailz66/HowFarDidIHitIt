@@ -3,58 +3,72 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SmackTrack - Golf Shot Distance Tracker</title>
-    <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            max-width: 720px;
-            margin: 0 auto;
-            padding: 2rem 1.5rem;
-            line-height: 1.7;
-            color: #1a1a1a;
-            background: #fafafa;
-            text-align: center;
-        }
-        h1 { color: #4A6741; margin-bottom: 0.25rem; font-size: 2.5rem; }
-        .subtitle { color: #666; margin-top: 0; font-size: 1.2rem; }
-        .tagline { color: #333; font-size: 1.1rem; margin: 2rem 0; }
-        .features { text-align: left; max-width: 500px; margin: 2rem auto; }
-        .features li { margin-bottom: 0.5rem; }
-        .links { margin-top: 2rem; }
-        .links a {
-            display: inline-block;
-            margin: 0.5rem 1rem;
-            color: #4A6741;
-            text-decoration: none;
-            font-weight: 600;
-        }
-        .links a:hover { text-decoration: underline; }
-        .footer { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid #ddd; color: #888; font-size: 0.85rem; }
-    </style>
+    <title>SmackTrack — Golf Shot Distance Tracker</title>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-<h1>SmackTrack</h1>
-<p class="subtitle">Golf Shot Distance Tracker</p>
-<p class="tagline">Tap where you hit. Walk to where it landed. Know your distance.</p>
+<nav class="nav">
+    <a href="index.html" class="nav-brand">SmackTrack</a>
+    <div class="nav-links">
+        <a href="privacy-policy.html">Privacy</a>
+        <a href="data-deletion.html">Data Deletion</a>
+        <a href="https://github.com/bailz66/HowFarDidIHitIt">GitHub</a>
+    </div>
+</nav>
 
-<ul class="features">
-    <li>GPS distance tracking in yards or meters</li>
-    <li>Real-time wind and weather conditions</li>
-    <li>Per-club analytics with trends and sparklines</li>
-    <li>60 achievements across 12 categories</li>
-    <li>Optional cloud sync with Google Sign-in</li>
-    <li>No ads. No subscriptions. No clutter.</li>
-</ul>
+<div class="hero">
+    <div class="hero-icon">&#9971;</div>
+    <h1>SmackTrack</h1>
+    <p class="subtitle">Golf Shot Distance Tracker</p>
+    <p class="tagline">Tap where you hit. Walk to where it landed.<br>Know your distance.</p>
+</div>
 
-<div class="links">
-    <a href="privacy-policy.html">Privacy Policy</a>
-    <a href="data-deletion.html">Data Deletion</a>
-    <a href="https://github.com/bailz66/HowFarDidIHitIt">GitHub</a>
+<div class="features-grid">
+    <div class="feature-card">
+        <div class="icon">&#128205;</div>
+        <h3>GPS Distance</h3>
+        <p>Adaptive GPS calibration measures your shot distance in yards or meters with real-time accuracy feedback.</p>
+    </div>
+    <div class="feature-card">
+        <div class="icon">&#127788;</div>
+        <h3>Wind &amp; Weather</h3>
+        <p>Live wind speed, direction, and temperature. See wind-adjusted carry with physics-based calculations.</p>
+    </div>
+    <div class="feature-card">
+        <div class="icon">&#128200;</div>
+        <h3>Club Analytics</h3>
+        <p>Per-club averages, trends, and sparklines. Filter by time period. Toggle raw vs. wind-adjusted distances.</p>
+    </div>
+    <div class="feature-card">
+        <div class="icon">&#127942;</div>
+        <h3>60 Achievements</h3>
+        <p>12 categories with 5 tiers each. From your first shot to 300-yard bombs and consistency streaks.</p>
+    </div>
+    <div class="feature-card">
+        <div class="icon">&#9729;</div>
+        <h3>Cloud Sync</h3>
+        <p>Optional Google Sign-in syncs shots, settings, and achievements across devices. Works offline too.</p>
+    </div>
+    <div class="feature-card">
+        <div class="icon">&#128274;</div>
+        <h3>Privacy First</h3>
+        <p>GPS coordinates are never stored. In-app analytics opt-out. Full account deletion. No ads ever.</p>
+    </div>
+</div>
+
+<div class="cta-row">
+    <a href="https://github.com/bailz66/HowFarDidIHitIt" class="cta-badge cta-primary">View on GitHub</a>
+    <a href="privacy-policy.html" class="cta-badge cta-outline">Privacy Policy</a>
 </div>
 
 <div class="footer">
-    <p>&copy; 2026 SmackTrack. Built with care for golfers who just want to know how far they hit it.</p>
+    <p>&copy; 2026 SmackTrack</p>
+    <p>
+        <a href="privacy-policy.html">Privacy Policy</a>
+        <a href="data-deletion.html">Data Deletion</a>
+        <a href="https://github.com/bailz66/HowFarDidIHitIt">GitHub</a>
+    </p>
 </div>
 
 </body>

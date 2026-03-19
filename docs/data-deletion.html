@@ -3,72 +3,80 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SmackTrack - Data Deletion</title>
-    <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            max-width: 720px;
-            margin: 0 auto;
-            padding: 2rem 1.5rem;
-            line-height: 1.7;
-            color: #1a1a1a;
-            background: #fafafa;
-        }
-        h1 { color: #2e7d32; margin-bottom: 0.25rem; }
-        h2 { color: #333; margin-top: 2rem; }
-        .subtitle { color: #666; margin-top: 0; }
-        ul { padding-left: 1.5rem; }
-        li { margin-bottom: 0.5rem; }
-        a { color: #2e7d32; }
-        .step { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1rem; }
-        .step-num { color: #2e7d32; font-weight: bold; font-size: 1.1rem; }
-        .footer { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid #ddd; color: #888; font-size: 0.85rem; }
-    </style>
+    <title>SmackTrack — Data Deletion</title>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-<h1>SmackTrack Data Deletion</h1>
-<p class="subtitle">How to delete your data</p>
+<nav class="nav">
+    <a href="index.html" class="nav-brand">SmackTrack</a>
+    <div class="nav-links">
+        <a href="privacy-policy.html">Privacy</a>
+        <a href="data-deletion.html" class="active">Data Deletion</a>
+        <a href="https://github.com/bailz66/HowFarDidIHitIt">GitHub</a>
+    </div>
+</nav>
 
-<h2>Delete your data from within the app</h2>
+<div class="container">
+    <div class="page-header">
+        <h1>Data Deletion</h1>
+        <p class="subtitle">How to delete your data</p>
+    </div>
 
-<div class="step">
-    <p><span class="step-num">1.</span> Open SmackTrack and tap the <strong>Settings</strong> gear icon (top right).</p>
-</div>
-<div class="step">
-    <p><span class="step-num">2.</span> If signed in, tap <strong>Delete Account</strong> at the bottom of the Cloud Sync section.</p>
-</div>
-<div class="step">
-    <p><span class="step-num">3.</span> Confirm deletion. This will permanently delete:</p>
+    <h2>Delete from within the app</h2>
+
+    <div class="step-card">
+        <div class="step-num">1</div>
+        <div class="step-content">
+            <p>Open SmackTrack and tap the <strong>Settings</strong> gear icon in the top right corner.</p>
+        </div>
+    </div>
+    <div class="step-card">
+        <div class="step-num">2</div>
+        <div class="step-content">
+            <p>If signed in, tap <strong>Delete Account</strong> at the bottom of the Cloud Sync section.</p>
+        </div>
+    </div>
+    <div class="step-card">
+        <div class="step-num">3</div>
+        <div class="step-content">
+            <p>Confirm deletion. This will <strong>permanently</strong> delete:</p>
+            <ul>
+                <li>Your Firebase Authentication account</li>
+                <li>All shot history stored in the cloud</li>
+                <li>All settings synced to the cloud</li>
+                <li>All achievement data stored in the cloud</li>
+            </ul>
+        </div>
+    </div>
+
+    <h2>Delete local data</h2>
+    <p>To delete all data stored on your device:</p>
     <ul>
-        <li>Your Firebase Authentication account</li>
-        <li>All shot history stored in the cloud</li>
-        <li>All settings synced to the cloud</li>
-        <li>All achievement data stored in the cloud</li>
+        <li><strong>Individual shots:</strong> Tap the delete icon on any shot in the History tab.</li>
+        <li><strong>All local data:</strong> Uninstall the app from your device. This removes all locally stored shots, settings, and achievements.</li>
+        <li><strong>App storage:</strong> Go to Android Settings &rarr; Apps &rarr; SmackTrack &rarr; Storage &rarr; Clear Data.</li>
+    </ul>
+
+    <h2>Request deletion via email</h2>
+    <p>If you cannot access the app or need assistance, you can request data deletion by opening an issue on our <a href="https://github.com/bailz66/HowFarDidIHitIt/issues">GitHub repository</a> with the subject "Data Deletion Request" and the email address associated with your Google Sign-in. We will delete your data within 30 days.</p>
+
+    <h2>What data is deleted</h2>
+    <ul>
+        <li><strong>Cloud data (Firestore):</strong> Shot history, settings, achievements &mdash; permanently deleted immediately.</li>
+        <li><strong>Firebase Auth account:</strong> Permanently deleted immediately.</li>
+        <li><strong>Firebase Analytics:</strong> Anonymized and aggregated &mdash; cannot be tied back to you. Retained per Google's standard retention policy.</li>
+        <li><strong>Firebase Crashlytics:</strong> Anonymous crash reports &mdash; cannot be tied back to you.</li>
     </ul>
 </div>
 
-<h2>Delete local data</h2>
-<p>To delete all data stored on your device:</p>
-<ul>
-    <li><strong>Individual shots:</strong> Swipe or tap the delete icon on any shot in the History tab.</li>
-    <li><strong>All local data:</strong> Uninstall the app from your device. This removes all locally stored shots, settings, and achievements.</li>
-    <li><strong>App storage:</strong> Go to Android Settings &rarr; Apps &rarr; SmackTrack &rarr; Storage &rarr; Clear Data.</li>
-</ul>
-
-<h2>Request deletion via email</h2>
-<p>If you cannot access the app or need assistance, you can request data deletion by opening an issue on our <a href="https://github.com/bailz66/HowFarDidIHitIt/issues">GitHub repository</a> with the subject "Data Deletion Request" and the email address associated with your Google Sign-in. We will delete your data within 30 days.</p>
-
-<h2>What data is deleted</h2>
-<ul>
-    <li><strong>Cloud data (Firestore):</strong> Shot history, settings, achievements — permanently deleted immediately.</li>
-    <li><strong>Firebase Auth account:</strong> Permanently deleted immediately.</li>
-    <li><strong>Firebase Analytics:</strong> Anonymized and aggregated — cannot be tied back to you. Retained per Google's standard retention policy.</li>
-    <li><strong>Firebase Crashlytics:</strong> Anonymous crash reports — cannot be tied back to you.</li>
-</ul>
-
 <div class="footer">
-    <p>&copy; 2026 SmackTrack. <a href="privacy-policy.html">Privacy Policy</a></p>
+    <p>&copy; 2026 SmackTrack</p>
+    <p>
+        <a href="index.html">Home</a>
+        <a href="privacy-policy.html">Privacy Policy</a>
+        <a href="data-deletion.html">Data Deletion</a>
+    </p>
 </div>
 
 </body>
