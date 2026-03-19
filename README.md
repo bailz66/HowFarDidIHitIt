@@ -5,7 +5,7 @@ A GPS-powered golf distance tracking app for Android. Walk to your ball, tap to 
 ## Features
 
 ### Shot Tracking
-- **GPS Calibration** — Accuracy-weighted averaging with outlier rejection for precise start/end positions
+- **Adaptive GPS Calibration** — Smart accuracy-weighted averaging (2-7s) that waits for GPS convergence with real-time accuracy feedback
 - **Live Distance** — Real-time yard/meter counter updates as you walk to your ball
 - **Club Selection** — 18 clubs across 4 categories (Woods, Hybrids, Irons, Wedges) with the ability to change clubs mid-walk without losing GPS tracking
 - **Foreground Service** — GPS stays alive when screen locks during walking phase
@@ -72,7 +72,7 @@ A GPS-powered golf distance tracking app for Android. Walk to your ball, tap to 
 | **Auth** | Firebase Auth + Credential Manager (Google Sign-in) |
 | **Weather** | Open-Meteo API (free, no key required) via `HttpURLConnection` + `org.json` |
 | **Wind Model** | Physics-based, calibrated against TrackMan data |
-| **Testing** | JUnit 5 — 348 test methods across 21 test files |
+| **Testing** | JUnit 5 — 462 test executions across 21 test files |
 | **CI/CD** | GitHub Actions (lint → unit-test → instrumented-test → build) |
 | **Min SDK** | 33 (Android 13) |
 | **Target SDK** | 36 (Android 16) |
@@ -176,9 +176,20 @@ Position accuracy is improved through a multi-step calibration process:
 - **Locale-safe API URLs** — `String.format(Locale.US, ...)` prevents comma decimal separators breaking Open-Meteo API calls
 - **Safe JSON deserialization** — `optString()`/`optInt()`/`optDouble()` with defaults; per-shot try/catch prevents one corrupt record from losing all data
 - **ProGuard log stripping** — `Log.v`, `Log.d`, and `Log.i` stripped from release builds
-- **Firestore security rules** — User data isolated by UID; global stats counter increment-only
+- **Firestore security rules** — User data isolated by UID; global stats counter increment-only; schema validation on all writes
 - **Distance validation** — NaN/infinite → 0, >500yd capped; prevents GPS anomalies from corrupting data
+- **Weather validation** — NaN and Infinity guard on API responses
 - **Firestore sync guards** — No sync calls without authenticated user
+- **Firebase App Check** — Play Integrity API prevents API abuse
+- **HTTPS enforced** — `cleartextTrafficPermitted="false"` in network security config
+- **Release keystore** — Stored securely outside repo; CI/CD decodes from GitHub Secrets
+- **In-app analytics opt-out** — Users can disable Firebase Analytics in Settings
+- **Account deletion** — Full Firestore + Firebase Auth data deletion from within the app
+
+## Privacy
+
+- **Privacy Policy**: [https://bailz66.github.io/HowFarDidIHitIt/privacy-policy.html](https://bailz66.github.io/HowFarDidIHitIt/privacy-policy.html)
+- **Data Deletion**: [https://bailz66.github.io/HowFarDidIHitIt/data-deletion.html](https://bailz66.github.io/HowFarDidIHitIt/data-deletion.html)
 
 ## Documentation
 
