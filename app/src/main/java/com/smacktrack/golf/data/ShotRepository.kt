@@ -366,7 +366,8 @@ class ShotRepository(context: Context) {
                     ?.filterIsInstance<String>()
                     ?.mapNotNull { enumValueOfOrNull<Club>(it) }?.toSet()
                     ?.ifEmpty { null }
-                    ?: Club.entries.toSet()
+                    ?: Club.entries.toSet(),
+                analyticsEnabled = getBoolean("analyticsEnabled") ?: true
             )
         } catch (e: Exception) {
             Log.e("ShotRepository", "Failed to parse Firestore settings", e)

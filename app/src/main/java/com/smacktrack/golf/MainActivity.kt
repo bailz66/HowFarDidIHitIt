@@ -826,7 +826,7 @@ private fun SplashOverlay(onFinished: () -> Unit) {
                 if (frame % 2 == 0 && ballT > 0.03f) {
                     val (bx, by) = ballPos(ballT)
                     trail.add(bx to by)
-                    if (trail.size > 30) trail.removeFirst()
+                    if (trail.size > 30) trail.removeAt(0)
                 }
             }
 
