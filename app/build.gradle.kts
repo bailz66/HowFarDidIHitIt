@@ -16,8 +16,8 @@ android {
         applicationId = "com.smacktrack.golf"
         minSdk = 33
         targetSdk = 36
-        versionCode = 10000  // MAJOR * 10000 + MINOR * 100 + PATCH
-        versionName = "1.0.0"
+        versionCode = 10001  // MAJOR * 10000 + MINOR * 100 + PATCH
+        versionName = "1.0.1"
     }
 
     signingConfigs {
