@@ -452,11 +452,10 @@ fun SmackTrackApp(viewModel: ShotTrackerViewModel) {
     ) { innerPadding ->
         if (showSettings) {
             // The web client ID is auto-generated from google-services.json
-            val webClientId = context.getString(
-                context.resources.getIdentifier(
-                    "default_web_client_id", "string", context.packageName
-                )
+            val webClientIdResId = context.resources.getIdentifier(
+                "default_web_client_id", "string", context.packageName
             )
+            val webClientId = if (webClientIdResId != 0) context.getString(webClientIdResId) else ""
             SettingsScreen(
                 settings = uiState.settings,
                 onDistanceUnitChanged = viewModel::updateDistanceUnit,
