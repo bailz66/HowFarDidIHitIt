@@ -1,4 +1,4 @@
-# SmackTrack — Project Overview
+# How Far Did I Hit It — Project Overview
 
 ## Mission
 A super simple Golf GPS app for Android. No fluff — just measure how far you hit the ball, track what club you used, record the weather, and see your stats over time.
@@ -9,23 +9,20 @@ Every golfer wants to know their real distances. Range markers lie, memory is un
 ## Core Principles
 - **Simplicity first** — every screen should be obvious without a tutorial
 - **Offline-first** — core functionality works without internet (weather is a nice-to-have overlay)
-- **Optional accounts** — Google Sign-in for cloud sync; core features work without any account
 - **No ads** — clean, distraction-free experience
-- **Privacy** — GPS data stays on-device by default; optional Firestore sync is user-isolated by UID
+- **Privacy** — GPS data stays on-device; weather API calls are anonymous
 
 ## Features
 
 | Feature | Issue | Summary |
 |---------|-------|---------|
-| Shot Tracking (GPS) | #2 | Mark start/end positions with calibrated GPS, live distance while walking, club selection, foreground service for screen lock, 15-min timeout |
-| Weather Integration | #3 | Record temperature, weather condition, wind via Open-Meteo API; wind-adjusted carry with TrackMan physics; manual wind control |
-| Shot Analytics | #4 | Per-club distance stats, sparklines, scatter strips, trend analysis, wind-adjusted toggle, session summaries |
-| Achievements | — | 12 categories × 5 tiers (60 total), gallery view, unlock banners |
-| Cloud Sync | — | Google Sign-in via Credential Manager, Firestore persistence, offline fallback |
-| Sharing | — | Canvas-rendered shot card PNG shared via FileProvider |
-| Modern UI/UX | #5 | Material Design 3, Poppins/Roboto typography, premium animations |
-| Test Automation | #6 | 348 test methods across 21 files, JUnit 5, parameterized boundary/validation tests |
-| Deployment Pipeline | #10 | CI/CD via GitHub Actions, signing, Play Store release process |
+| Shot Tracking (GPS) | #2 | Mark start/end positions with calibrated GPS, live distance while walking, club selection |
+| Weather Integration | #3 | Record temperature, weather condition (rain/fog/clear), and wind via Open-Meteo API, cached hourly |
+| Shot Analytics | #4 | Per-club distance stats, shot history, filtering by club/date/weather/temperature |
+| Modern UI/UX | #5 | Material Design 3, dynamic color, responsive layouts, polished animations |
+| Test Automation | #6 | Unit, integration, and UI test framework with CI |
+| Deployment Pipeline | #10 | CI/CD, signing, Play Store release process |
+| Internationalization | #14 | String externalization, RTL support, multi-language readiness |
 
 ## Target Audience
 - Casual and amateur golfers who want to learn their real distances
@@ -45,14 +42,15 @@ Every golfer wants to know their real distances. Range markers lie, memory is un
 |-------|--------|-----------|
 | Language | Kotlin | Standard for modern Android development |
 | UI Framework | Jetpack Compose + Material Design 3 | Declarative, modern, Google-recommended |
-| GPS | FusedLocationProviderClient (Google Play Services Location) | Best accuracy, handles GPS/network fusion |
-| Weather | Open-Meteo API via `HttpURLConnection` + `org.json` | Free, no key required, global coverage |
-| Architecture | Single-activity, MVVM (AndroidViewModel + StateFlow) | Simple, testable, follows Android best practices |
-| Data Storage | SharedPreferences (local) + Firestore (cloud sync) | Offline-first with optional cloud backup |
-| Authentication | Firebase Auth + Credential Manager (Google Sign-in) | One-tap sign-in, no password management |
-| Testing | JUnit 5 — 348 test methods across 21 files | Comprehensive boundary, validation, and logic coverage |
+| Location | FusedLocationProviderClient (Google Play Services) | Best accuracy, handles GPS/network fusion |
+| Database | Room (SQLite) | Type-safe local persistence, reactive queries with Flow |
+| HTTP Client | Retrofit + OkHttp | Lightweight, well-tested, standard for Android |
+| Architecture | Single-activity, MVVM (ViewModel + StateFlow) | Simple, testable, follows Android best practices |
+| Navigation | Jetpack Compose Navigation | Type-safe, integrated with Compose lifecycle |
+| DI | Hilt | Standard DI for Android, reduces boilerplate |
+| Testing | JUnit 5 + Espresso + Compose UI Testing | Comprehensive coverage across all layers |
 | CI/CD | GitHub Actions | Free for public repos, good Android support |
-| Min SDK | 33 (Android 13) | Leverages modern APIs and permissions model |
+| Min SDK | 26 (Android 8.0) | Covers 95%+ of active devices |
 | Target SDK | 36 | Latest stable API level |
 
 ## Repository Structure
@@ -61,30 +59,28 @@ HowFarDidIHitIt/
 ├── app/
 │   └── src/
 │       ├── main/
-│       │   ├── java/com/smacktrack/golf/
-│       │   │   ├── domain/         # Models (Club, GpsCoordinate, Achievement, AchievementChecker)
-│       │   │   ├── location/       # GPS calibration, haversine, wind calc, LocationProvider
-│       │   │   ├── network/        # WeatherService, WeatherMapper
-│       │   │   ├── data/           # ShotRepository, AchievementRepository, AuthManager, ShotSerialization
-│       │   │   ├── service/        # ShotTrackingService (foreground service)
+│       │   ├── java/com/example/howfardidihitit/
+│       │   │   ├── data/           # Room DB, DAOs, repositories
+│       │   │   ├── domain/         # Models, use cases
+│       │   │   ├── location/       # GPS calibration, location services
+│       │   │   ├── network/        # Retrofit, weather API
 │       │   │   ├── ui/
-│       │   │   │   ├── screen/     # Shot tracker, analytics, history, settings, achievements
-│       │   │   │   ├── share/      # ShareUtil, ShotCardRenderer
+│       │   │   │   ├── components/ # Reusable composables
+│       │   │   │   ├── screens/    # Shot tracker, analytics, history
+│       │   │   │   ├── navigation/ # Nav graph, routes
 │       │   │   │   └── theme/      # Material 3 theme, colors, typography
-│       │   │   ├── validation/     # Shot, GPS, weather, timestamp validators
-│       │   │   └── MainActivity.kt # Single-activity entry point with bottom nav
+│       │   │   └── di/            # Hilt modules
 │       │   └── res/
-│       │       ├── values/         # strings.xml, themes, colors
-│       │       ├── drawable/       # Vector icons
-│       │       └── font/           # Poppins font family
-│       ├── test/                   # 21 test files, 348 test methods (JUnit 5)
-│       └── androidTest/            # Instrumented tests
+│       │       ├── values/         # strings.xml (default English)
+│       │       ├── values-es/      # Spanish strings
+│       │       ├── values-fr/      # French strings (etc.)
+│       │       └── ...
+│       ├── test/                   # Unit tests
+│       └── androidTest/            # Instrumented + UI tests
 ├── docs/                           # Project documentation
 ├── .github/
-│   └── workflows/                  # CI/CD pipelines (ci.yml, release.yml)
-├── firestore.rules                 # Production Firestore security rules
+│   └── workflows/                  # CI/CD pipelines
 └── gradle/
-    └── libs.versions.toml          # Version catalog
 ```
 
 ## Related Documentation
@@ -96,7 +92,5 @@ HowFarDidIHitIt/
 - [Feature 3: Analytics](./FEATURE_3_ANALYTICS.md)
 - [Testing Strategy](./TESTING.md)
 - [Deployment & Play Store](./DEPLOYMENT.md)
+- [Internationalization](./INTERNATIONALIZATION.md)
 - [UI/UX Design](./UI_DESIGN.md)
-- [Branching Strategy](./BRANCHING_STRATEGY.md)
-- [Bug Hunt Methodology](./BUG_HUNT.md)
-- [Versioning Strategy](./VERSIONING.md)
