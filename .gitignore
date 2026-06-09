@@ -18,3 +18,14 @@ hs_err_pid*.log
 replay_pid*.log
 *.jks
 .claude/settings.local.json
+
+# Local dev scratch — verification screenshots, demo videos, and step folders (not source).
+# Root-anchored so real drawables/assets under app/src are unaffected.
+/screenshot_*.png
+/*.mp4
+/analytics_cleanup/
+/release_test/
+/splash_screen/
+/ui_updates/
+/visual_verify/
+/walking_strip/
