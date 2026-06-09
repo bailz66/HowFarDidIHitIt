@@ -121,7 +121,7 @@ import com.smacktrack.golf.ui.theme.clubChipColor
 import com.smacktrack.golf.ui.theme.windCategoryColor
 
 // Distance number styles — Roboto with tabular figures so digits don't jump
-private val DistanceLive = TextStyle(
+internal val DistanceLive = TextStyle(
     fontFamily = RobotoFamily,
     fontWeight = FontWeight.Bold,
     fontSize = 96.sp,
@@ -407,7 +407,7 @@ private fun RecentShotRow(shot: ShotResult, settings: AppSettings, onDelete: (()
 }
 
 @Composable
-private fun ClubChip(
+internal fun ClubChip(
     club: Club,
     selected: Boolean,
     onClick: () -> Unit
@@ -436,7 +436,7 @@ private fun ClubChip(
 // ── Epic Button ─────────────────────────────────────────────────────────────
 
 @Composable
-private fun EpicButton(
+internal fun EpicButton(
     text: String,
     enabled: Boolean = true,
     pulsate: Boolean = false,
@@ -519,7 +519,7 @@ private data class SignalParticle(
 )
 
 @Composable
-private fun CalibratingContent(
+internal fun CalibratingContent(
     label: String,
     realAccuracyMeters: Double?,
     realProgress: Float?,
