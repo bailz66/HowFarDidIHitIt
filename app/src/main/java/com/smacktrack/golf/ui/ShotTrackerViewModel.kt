@@ -59,6 +59,20 @@ enum class ShotPhase {
     RESULT
 }
 
+/**
+ * Phases of the Range Mode workflow ("one smack, many tracks").
+ *
+ * One origin is calibrated ([CALIBRATING_ORIGIN]), then any number of balls are
+ * measured from it ([TRACKING]) before the session [SUMMARY]. Each tracked ball is
+ * saved as a normal [ShotResult] so it flows into the existing Stats/History.
+ */
+enum class RangePhase {
+    IDLE,
+    CALIBRATING_ORIGIN,
+    TRACKING,
+    SUMMARY
+}
+
 enum class SyncStatus { IDLE, SYNCING, SYNCED, ERROR }
 
 enum class DistanceUnit(val label: String) {
@@ -124,7 +138,15 @@ data class ShotTrackerUiState(
     val gpsAccuracyMeters: Double? = null,
     val calibrationAccuracyMeters: Double? = null,
     val calibrationProgress: Float = 0f,
-    val accountDeleted: Boolean = false
+    val accountDeleted: Boolean = false,
+    // ── Range Mode ("one smack, many tracks") ──
+    val rangePhase: RangePhase = RangePhase.IDLE,
+    val rangeClub: Club = Club.DRIVER,
+    val rangeOrigin: GpsCoordinate? = null,
+    val rangeLiveDistanceYards: Int = 0,
+    val rangeLiveDistanceMeters: Int = 0,
+    val rangeBalls: List<ShotResult> = emptyList(),
+    val rangeCapturing: Boolean = false
 )
 
 class ShotTrackerViewModel(application: Application) : AndroidViewModel(application) {
@@ -154,6 +176,12 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
     private var authObserverJob: Job? = null
     private var errorObserverJob: Job? = null
     private var startAccuracyMeters: Double? = null
+
+    // Range Mode session state (not part of UiState — internal bookkeeping)
+    private var rangeWeather: WeatherData? = null
+    private var rangeTimeoutJob: Job? = null
+    // Bumped each session so a slow weather fetch from a prior session can't clobber a new one
+    private var rangeSessionToken = 0
 
     init {
         achievementRepository.migrateOldKeys()
@@ -473,6 +501,12 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
 
     fun markStart() {
         if (_uiState.value.phase != ShotPhase.CLUB_SELECT) return
+        // Don't start a single shot while a Range session is using GPS (the two flows share the
+        // location stream + foreground service). The nav lock normally prevents reaching here.
+        if (_uiState.value.rangePhase == RangePhase.CALIBRATING_ORIGIN ||
+            _uiState.value.rangePhase == RangePhase.TRACKING) return
+        // Discard any lingering finished-range summary so it can't be torn down mid-shot later
+        if (_uiState.value.rangePhase == RangePhase.SUMMARY) rangeReset()
         // Default to Driver if no club selected yet
         if (_uiState.value.selectedClub == null) {
             _uiState.update { it.copy(selectedClub = Club.DRIVER) }
@@ -585,20 +619,8 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
                     startCoord
                 }
 
-            var distanceMeters = haversineMeters(startCoord, endCoord)
-            var distanceYards = metersToYards(distanceMeters)
-
-            // Clamp implausible distances (NaN, infinite, or >500 yards)
-            if (distanceYards.isNaN() || distanceYards.isInfinite()) {
-                analyticsTracker.logGpsError("nan_distance")
-                toast("GPS reading error. Distance could not be calculated.")
-                distanceYards = 0.0
-                distanceMeters = 0.0
-            } else if (distanceYards > 500) {
-                toast("Distance exceeded 500 yards. Capped for accuracy.")
-                distanceYards = 500.0
-                distanceMeters = 500.0 / 1.09361
-            }
+            val rawMeters = haversineMeters(startCoord, endCoord)
+            val (distanceMeters, distanceYards) = clampDistance(rawMeters, metersToYards(rawMeters))
 
             // Use real weather or fallback — 21.1°C (70°F) baseline so temperature effect is zero
             val weather = weatherDeferred.await() ?: WeatherData(
@@ -630,58 +652,78 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
                 shotBearingDegrees = shotBearing
             )
 
-            // Log analytics event first (no PII/location data)
-            analyticsTracker.logShot(result)
-            analyticsTracker.setUserProperties(_uiState.value.settings, _uiState.value.shotHistory.size + 1)
-
-            // Update UI immediately — don't block on network
-            var updatedHistory: List<ShotResult> = emptyList()
+            // Update result UI immediately — don't block on network
             _uiState.update {
-                val history = it.shotHistory + result
-                updatedHistory = history
                 it.copy(
                     phase = ShotPhase.RESULT,
                     shotResult = result,
-                    shotHistory = history,
                     gpsAccuracyMeters = combinedAccuracy
                 )
             }
-            // Persist to SharedPrefs as local backup
-            persistShots(updatedHistory)
+            // Append to history, persist, sync, and check achievements (shared with Range Mode)
+            commitShot(result, capturedUid)
             toast("Shot saved" + if (_uiState.value.isSignedIn) " to cloud" else " locally")
-            // Save to Firestore in background (only when signed in to avoid duplicate local save)
-            if (capturedUid != null) {
-                firestoreSync { repository.saveShot(result, forUid = capturedUid) }
-                viewModelScope.launch { repository.incrementGlobalShotCount() }
-            }
+        }
+    }
 
-            // Check achievements
-            val currentState = _uiState.value
-            val newAchievements = checkAchievements(
-                allShots = currentState.shotHistory,
-                newShot = result,
-                alreadyUnlocked = currentState.unlockedAchievements.keys,
-                enabledClubs = currentState.settings.enabledClubs
-            )
-            if (newAchievements.isNotEmpty()) {
-                val now = System.currentTimeMillis()
-                var mergedMap: Map<String, Long> = emptyMap()
-                _uiState.update { state ->
-                    val merged = state.unlockedAchievements.toMutableMap()
-                    newAchievements.forEach { a -> merged[a.storageKey] = now }
-                    mergedMap = merged
-                    state.copy(
-                        unlockedAchievements = merged,
-                        newlyUnlockedAchievements = newAchievements
-                    )
-                }
-                achievementRepository.saveUnlocked(mergedMap)
-                newAchievements.forEach { achievement ->
-                    analyticsTracker.logAchievement(achievement.category.name, achievement.tier.name)
-                    if (capturedUid != null) {
-                        firestoreSync {
-                            achievementRepository.saveToFirestore(achievement.storageKey, now, capturedUid)
-                        }
+    /**
+     * Shared persistence path for a completed [ShotResult], used by both the single-shot
+     * flow ([markEnd]) and Range Mode ([rangeTrackBall]). Logs analytics, appends the shot to
+     * history, persists locally, syncs to Firestore when signed in, and checks achievements.
+     *
+     * Callers update their own phase/UI fields before invoking this.
+     */
+    private fun commitShot(result: ShotResult, capturedUid: String?) {
+        // Log analytics event first (no PII/location data)
+        analyticsTracker.logShot(result)
+        analyticsTracker.setUserProperties(_uiState.value.settings, _uiState.value.shotHistory.size + 1)
+
+        var updatedHistory: List<ShotResult> = emptyList()
+        _uiState.update {
+            val history = it.shotHistory + result
+            updatedHistory = history
+            it.copy(shotHistory = history)
+        }
+        // Persist to SharedPrefs as local backup
+        persistShots(updatedHistory)
+        // Save to Firestore in background (only when signed in to avoid duplicate local save)
+        if (capturedUid != null) {
+            firestoreSync { repository.saveShot(result, forUid = capturedUid) }
+            viewModelScope.launch { repository.incrementGlobalShotCount() }
+        }
+        processNewAchievements(result, capturedUid)
+    }
+
+    /**
+     * Checks for newly unlocked achievements triggered by [result] and persists/syncs them.
+     * Shared by [commitShot] and [changeResultClub].
+     */
+    private fun processNewAchievements(result: ShotResult, capturedUid: String?) {
+        val currentState = _uiState.value
+        val newAchievements = checkAchievements(
+            allShots = currentState.shotHistory,
+            newShot = result,
+            alreadyUnlocked = currentState.unlockedAchievements.keys,
+            enabledClubs = currentState.settings.enabledClubs
+        )
+        if (newAchievements.isNotEmpty()) {
+            val now = System.currentTimeMillis()
+            var mergedMap: Map<String, Long> = emptyMap()
+            _uiState.update { state ->
+                val merged = state.unlockedAchievements.toMutableMap()
+                newAchievements.forEach { a -> merged[a.storageKey] = now }
+                mergedMap = merged
+                state.copy(
+                    unlockedAchievements = merged,
+                    newlyUnlockedAchievements = newAchievements
+                )
+            }
+            achievementRepository.saveUnlocked(mergedMap)
+            newAchievements.forEach { achievement ->
+                analyticsTracker.logAchievement(achievement.category.name, achievement.tier.name)
+                if (capturedUid != null) {
+                    firestoreSync {
+                        achievementRepository.saveToFirestore(achievement.storageKey, now, capturedUid)
                     }
                 }
             }
@@ -712,35 +754,7 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
         }
         // Re-check achievements with the updated club
         updatedResult?.let { shot ->
-            val currentState = _uiState.value
-            val newAchievements = checkAchievements(
-                allShots = currentState.shotHistory,
-                newShot = shot,
-                alreadyUnlocked = currentState.unlockedAchievements.keys,
-                enabledClubs = currentState.settings.enabledClubs
-            )
-            if (newAchievements.isNotEmpty()) {
-                val now = System.currentTimeMillis()
-                var mergedMap: Map<String, Long> = emptyMap()
-                _uiState.update { state ->
-                    val merged = state.unlockedAchievements.toMutableMap()
-                    newAchievements.forEach { a -> merged[a.storageKey] = now }
-                    mergedMap = merged
-                    state.copy(
-                        unlockedAchievements = merged,
-                        newlyUnlockedAchievements = newAchievements
-                    )
-                }
-                achievementRepository.saveUnlocked(mergedMap)
-                newAchievements.forEach { achievement ->
-                    analyticsTracker.logAchievement(achievement.category.name, achievement.tier.name)
-                    if (capturedUid != null) {
-                        firestoreSync {
-                            achievementRepository.saveToFirestore(achievement.storageKey, now, capturedUid)
-                        }
-                    }
-                }
-            }
+            processNewAchievements(shot, capturedUid)
         }
     }
 
@@ -770,11 +784,274 @@ class ShotTrackerViewModel(application: Application) : AndroidViewModel(applicat
 
     fun reset() = nextShot()
 
+    /**
+     * Clamps implausible GPS distances. NaN/infinite collapse to 0; anything over 500 yards is
+     * capped. Emits a toast (and analytics on NaN) so the user understands the adjustment.
+     * Shared by [markEnd] and [rangeTrackBall]. Returns (meters, yards).
+     */
+    private fun clampDistance(distanceMeters: Double, distanceYards: Double): Pair<Double, Double> =
+        when {
+            distanceYards.isNaN() || distanceYards.isInfinite() -> {
+                analyticsTracker.logGpsError("nan_distance")
+                toast("GPS reading error. Distance could not be calculated.")
+                0.0 to 0.0
+            }
+            distanceYards > 500 -> {
+                toast("Distance exceeded 500 yards. Capped for accuracy.")
+                (500.0 / 1.09361) to 500.0
+            }
+            else -> distanceMeters to distanceYards
+        }
+
+    // ── Range Mode ("one smack, many tracks") ───────────────────────────────────
+    //
+    // A self-contained second state machine that reuses the GPS calibration, foreground
+    // service, and shot-persistence helpers above. One origin is calibrated, then any number
+    // of balls are measured from it. Each ball is committed as a normal ShotResult (shared club,
+    // distinct timestamps) so it flows into Stats/History and groups into one Session.
+
+    private fun startRangeTimeout() {
+        rangeTimeoutJob?.cancel()
+        rangeTimeoutJob = viewModelScope.launch {
+            delay(SHOT_TIMEOUT_MS)
+            toast("Range session timed out after 15 minutes")
+            rangeEndSession()
+        }
+    }
+
+    private fun cancelRangeTimeout() {
+        rangeTimeoutJob?.cancel()
+        rangeTimeoutJob = null
+    }
+
+    fun rangeSelectClub(club: Club) {
+        if (_uiState.value.rangePhase != RangePhase.IDLE) return
+        _uiState.update { it.copy(rangeClub = club) }
+    }
+
+    /**
+     * Starts a range session: calibrates a single origin (reusing the adaptive start
+     * calibration), fetches weather once for the whole session, then enters [RangePhase.TRACKING]
+     * and begins polling the live distance from the origin.
+     */
+    fun rangeStartSession() {
+        if (_uiState.value.rangePhase != RangePhase.IDLE) return
+        rangeWeather = null
+        val sessionToken = ++rangeSessionToken
+        _uiState.update {
+            it.copy(
+                rangePhase = RangePhase.CALIBRATING_ORIGIN,
+                rangeOrigin = null,
+                rangeBalls = emptyList(),
+                rangeLiveDistanceYards = 0,
+                rangeLiveDistanceMeters = 0,
+                calibrationAccuracyMeters = null,
+                calibrationProgress = 0f
+            )
+        }
+
+        startLocationUpdates()
+        if (_uiState.value.locationPermissionGranted) {
+            startTrackingService()
+        }
+        startRangeTimeout()
+
+        viewModelScope.launch {
+            // Wait for a fresh GPS fix, then warm up weather in parallel with calibration so the
+            // network call never blocks the origin → tracking transition.
+            waitForFreshGps()
+            val warmSnap = gpsState
+            val weatherDeferred = async {
+                if (warmSnap.lat != 0.0 || warmSnap.lon != 0.0) {
+                    WeatherService.fetchWeather(warmSnap.lat, warmSnap.lon)
+                } else null
+            }
+
+            val samples = collectGpsSamplesAdaptive()
+            val calibrated = calibrateWeighted(samples)
+
+            val snap = gpsState
+            val originCoord = calibrated?.coordinate
+                ?: if (snap.lat != 0.0 || snap.lon != 0.0) {
+                    GpsCoordinate(snap.lat, snap.lon)
+                } else {
+                    // No valid GPS position — abort and return to idle
+                    weatherDeferred.cancel()
+                    analyticsTracker.logGpsError("no_fix_on_range_origin")
+                    toast("Could not get GPS position. Try again in an open area.")
+                    _uiState.update { it.copy(rangePhase = RangePhase.IDLE) }
+                    stopLocationUpdates()
+                    stopTrackingService()
+                    cancelRangeTimeout()
+                    return@launch
+                }
+
+            // Re-check phase — user may have cancelled during calibration
+            if (_uiState.value.rangePhase != RangePhase.CALIBRATING_ORIGIN) {
+                weatherDeferred.cancel()
+                return@launch
+            }
+
+            // Enter TRACKING immediately — don't block on the weather network call
+            _uiState.update {
+                it.copy(
+                    rangePhase = RangePhase.TRACKING,
+                    rangeOrigin = originCoord,
+                    rangeLiveDistanceYards = 0,
+                    rangeLiveDistanceMeters = 0
+                )
+            }
+
+            // Store the session weather once it resolves (reused for every ball). Guard on the
+            // session token so a slow fetch from a prior session can't overwrite a newer one.
+            launch {
+                val weather = weatherDeferred.await()
+                if (sessionToken == rangeSessionToken) rangeWeather = weather
+            }
+
+            pollRangeLiveDistance(originCoord)
+        }
+    }
+
+    private suspend fun pollRangeLiveDistance(origin: GpsCoordinate) {
+        while (_uiState.value.rangePhase == RangePhase.TRACKING) {
+            delay(500)
+
+            // Freeze the live number while a ball is being captured (matches the single-shot flow,
+            // which stops polling by switching phase during end-calibration).
+            if (_uiState.value.rangeCapturing) continue
+
+            val snap = gpsState
+            if (snap.lat == 0.0 && snap.lon == 0.0) continue
+
+            val currentPos = GpsCoordinate(snap.lat, snap.lon)
+            val distanceMeters = haversineMeters(origin, currentPos)
+            val distanceYards = metersToYards(distanceMeters)
+
+            if (!distanceYards.isNaN() && !distanceMeters.isNaN()) {
+                _uiState.update {
+                    it.copy(
+                        rangeLiveDistanceYards = distanceYards.roundToInt(),
+                        rangeLiveDistanceMeters = distanceMeters.roundToInt()
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Records the current position as a tracked ball: runs a brief end-calibration, computes the
+     * distance from the fixed origin, and commits it as a [ShotResult] (shared with [markEnd]).
+     * Stays in [RangePhase.TRACKING] so the golfer can keep tracking the next ball.
+     */
+    fun rangeTrackBall() {
+        val state = _uiState.value
+        if (state.rangePhase != RangePhase.TRACKING || state.rangeCapturing) return
+        val origin = state.rangeOrigin ?: return
+        val club = state.rangeClub
+        val capturedUid = repository.snapshotUid()
+
+        // Keep the session alive — user is actively tracking
+        startRangeTimeout()
+        _uiState.update { it.copy(rangeCapturing = true) }
+
+        viewModelScope.launch {
+            val samples = collectGpsSamples(END_CALIBRATION_DURATION_MS)
+
+            // Aborted mid-calibration (session ended) — don't create a ghost ball
+            if (_uiState.value.rangePhase != RangePhase.TRACKING) {
+                _uiState.update { it.copy(rangeCapturing = false) }
+                return@launch
+            }
+
+            val calibrated = calibrateWeighted(samples)
+            val endSnap = gpsState
+            val ballCoord = calibrated?.coordinate
+                ?: if (endSnap.lat != 0.0 || endSnap.lon != 0.0) {
+                    GpsCoordinate(endSnap.lat, endSnap.lon)
+                } else {
+                    analyticsTracker.logGpsError("signal_lost_on_range_track")
+                    toast("GPS signal lost. Distance may be inaccurate.")
+                    origin
+                }
+
+            val rawMeters = haversineMeters(origin, ballCoord)
+            val (distanceMeters, distanceYards) = clampDistance(rawMeters, metersToYards(rawMeters))
+
+            // Reuse the session weather (fetched once at origin); fall back to a neutral baseline
+            val weather = rangeWeather ?: WeatherData(
+                temperatureCelsius = 21.1,
+                weatherCode = -1,
+                windSpeedKmh = 0.0,
+                windDirectionDegrees = 0
+            )
+
+            val result = ShotResult(
+                club = club,
+                distanceYards = distanceYards.roundToInt(),
+                distanceMeters = distanceMeters.roundToInt(),
+                weatherDescription = wmoCodeToLabel(weather.weatherCode),
+                temperatureF = celsiusToFahrenheit(weather.temperatureCelsius).roundToInt(),
+                temperatureC = weather.temperatureCelsius.roundToInt(),
+                windSpeedKmh = weather.windSpeedKmh,
+                windDirectionCompass = degreesToCompass(weather.windDirectionDegrees),
+                windDirectionDegrees = weather.windDirectionDegrees,
+                shotBearingDegrees = bearingDegrees(origin, ballCoord)
+            )
+
+            // Add to this session's ball list (newest last) and clear the capturing flag
+            _uiState.update { it.copy(rangeBalls = it.rangeBalls + result, rangeCapturing = false) }
+            // Append to history, persist, sync, check achievements (shared with single-shot flow)
+            commitShot(result, capturedUid)
+        }
+    }
+
+    /** Ends the active range session and shows the summary (or returns to idle if no balls). */
+    fun rangeEndSession() {
+        val state = _uiState.value
+        if (state.rangePhase != RangePhase.TRACKING) return
+        stopLocationUpdates()
+        stopTrackingService()
+        cancelRangeTimeout()
+        if (state.rangeBalls.isEmpty()) {
+            rangeReset()
+        } else {
+            // Clear any range-earned achievement banner so it can't leak onto a later single shot's
+            // result (RangeScreen doesn't render the banner; the trophy badge is the in-session cue).
+            _uiState.update {
+                it.copy(rangePhase = RangePhase.SUMMARY, newlyUnlockedAchievements = emptyList())
+            }
+        }
+    }
+
+    /** Resets Range Mode back to idle, clearing all session state. */
+    fun rangeReset() {
+        stopLocationUpdates()
+        stopTrackingService()
+        cancelRangeTimeout()
+        clearGpsState()
+        rangeWeather = null
+        _uiState.update {
+            it.copy(
+                rangePhase = RangePhase.IDLE,
+                rangeOrigin = null,
+                rangeLiveDistanceYards = 0,
+                rangeLiveDistanceMeters = 0,
+                rangeBalls = emptyList(),
+                rangeCapturing = false,
+                newlyUnlockedAchievements = emptyList(),
+                calibrationAccuracyMeters = null,
+                calibrationProgress = 0f
+            )
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
         stopLocationUpdates()
         stopTrackingService()
         cancelShotTimeout()
+        cancelRangeTimeout()
         authManager?.cleanup()
     }
 

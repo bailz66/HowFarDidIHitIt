@@ -51,6 +51,7 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
@@ -75,6 +76,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -106,6 +108,7 @@ import com.smacktrack.golf.data.AuthManager
 import com.smacktrack.golf.domain.AchievementCategory
 import com.smacktrack.golf.ui.AppSettings
 import com.smacktrack.golf.ui.ShotResult
+import com.smacktrack.golf.ui.RangePhase
 import com.smacktrack.golf.ui.ShotPhase
 import com.smacktrack.golf.ui.ShotTrackerViewModel
 import com.smacktrack.golf.ui.SyncStatus
@@ -119,6 +122,7 @@ import com.smacktrack.golf.ui.screen.AnimatedCounter
 import com.smacktrack.golf.ui.screen.ClubBadge
 import com.smacktrack.golf.ui.screen.DistanceResult
 import com.smacktrack.golf.ui.screen.HistoryScreen
+import com.smacktrack.golf.ui.screen.RangeScreen
 import com.smacktrack.golf.ui.screen.SettingsScreen
 import com.smacktrack.golf.ui.screen.ShareShotButton
 import com.smacktrack.golf.ui.screen.ShotTrackerScreen
@@ -185,6 +189,7 @@ private val allPermissions = arrayOf(
 
 private val navItems = listOf(
     NavItem("Tracker", Icons.Default.Place),
+    NavItem("Range", Icons.Default.Refresh),
     NavItem("Stats", Icons.Default.Star),
     NavItem("History", Icons.AutoMirrored.Default.List)
 )
@@ -194,7 +199,8 @@ private val navItems = listOf(
 fun SmackTrackApp(viewModel: ShotTrackerViewModel) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    var selectedTab by remember { mutableIntStateOf(0) }
+    // Saveable so the visible tab survives config changes in step with the ViewModel's flow state
+    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var showSettings by remember { mutableStateOf(false) }
     var splashFinished by remember { mutableStateOf(false) }
     var detailShot by remember { mutableStateOf<ShotResult?>(null) }
@@ -204,11 +210,37 @@ fun SmackTrackApp(viewModel: ShotTrackerViewModel) {
     LaunchedEffect(selectedTab) {
         val screenName = when (selectedTab) {
             0 -> "tracker"
-            1 -> "stats"
-            2 -> "history"
+            1 -> "range"
+            2 -> "stats"
+            3 -> "history"
             else -> "unknown"
         }
         viewModel.analyticsTracker.logScreenView(screenName)
+    }
+
+    // Which tab (if any) owns the screen because a GPS flow is mid-session.
+    // Single-shot: index 0; Range: index 1; -1 = neither (nav free).
+    val shotActive = uiState.phase != ShotPhase.CLUB_SELECT && uiState.phase != ShotPhase.RESULT
+    val rangeActive = uiState.rangePhase == RangePhase.CALIBRATING_ORIGIN ||
+        uiState.rangePhase == RangePhase.TRACKING
+    val activeTab = when {
+        shotActive -> 0
+        rangeActive -> 1
+        else -> -1
+    }
+
+    // Keep the visible tab pinned to an active GPS flow (e.g. after a rotation that reset selectedTab),
+    // so the active session's screen is shown rather than a different tab's content.
+    LaunchedEffect(activeTab) {
+        if (activeTab != -1 && selectedTab != activeTab) selectedTab = activeTab
+    }
+
+    // A finished range session (SUMMARY) is transient — discard it when the user leaves the Range tab
+    // so returning later shows a fresh idle screen, not a stale "Done" summary.
+    LaunchedEffect(selectedTab) {
+        if (selectedTab != 1 && uiState.rangePhase == RangePhase.SUMMARY) {
+            viewModel.rangeReset()
+        }
     }
 
     // Back button closes settings/achievements overlays instead of exiting app
@@ -423,12 +455,12 @@ fun SmackTrackApp(viewModel: ShotTrackerViewModel) {
                     containerColor = MaterialTheme.colorScheme.surface,
                     tonalElevation = 0.dp
                 ) {
-                    val shotActive = uiState.phase != ShotPhase.CLUB_SELECT && uiState.phase != ShotPhase.RESULT
+                    // While a GPS flow is mid-session, lock the bottom nav to that flow's tab (activeTab)
                     navItems.forEachIndexed { index, item ->
                         NavigationBarItem(
                             selected = selectedTab == index,
                             onClick = { selectedTab = index },
-                            enabled = index == 0 || !shotActive,
+                            enabled = activeTab == -1 || index == activeTab,
                             icon = { Icon(item.icon, contentDescription = item.label) },
                             label = {
                                 Text(
@@ -518,7 +550,16 @@ fun SmackTrackApp(viewModel: ShotTrackerViewModel) {
                         newlyUnlockedAchievements = uiState.newlyUnlockedAchievements,
                         onAchievementsSeen = viewModel::clearNewAchievements
                     )
-                    1 -> AnalyticsScreen(
+                    1 -> RangeScreen(
+                        uiState = uiState,
+                        onSelectClub = viewModel::rangeSelectClub,
+                        onStartSession = viewModel::rangeStartSession,
+                        onTrackBall = viewModel::rangeTrackBall,
+                        onEndSession = viewModel::rangeEndSession,
+                        onReset = viewModel::rangeReset,
+                        onDone = viewModel::rangeReset
+                    )
+                    2 -> AnalyticsScreen(
                         shotHistory = uiState.shotHistory,
                         settings = uiState.settings,
                         onDeleteShot = viewModel::deleteShot,
